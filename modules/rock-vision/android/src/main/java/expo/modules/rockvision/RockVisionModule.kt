@@ -59,6 +59,16 @@ class RockVisionModule : Module() {
       }
     }
 
+    AsyncFunction("captureArColor") Coroutine { ->
+      val activity = appContext.currentActivity
+        ?: return@Coroutine mapOf("success" to false, "error" to "The camera is not open.")
+      try {
+        DepthSampler.captureColor(activity)
+      } catch (error: Exception) {
+        mapOf("success" to false, "error" to error.javaClass.simpleName)
+      }
+    }
+
     AsyncFunction("sampleDepth") Coroutine { ->
       val activity = appContext.currentActivity
         ?: return@Coroutine mapOf(

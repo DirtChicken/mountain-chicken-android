@@ -61,18 +61,30 @@ export async function loadDisplayMesh(meshUrl: string): Promise<SurfaceMesh> {
   }
 }
 
-export async function writeFaceFiles(objUri: string, objText: string, mtl: string, jpeg: Uint8Array): Promise<void> {
-  if (objUri.startsWith(WEB_PREFIX)) return;
+export async function writeFaceFiles(
+  objUri: string,
+  objText: string,
+  mtl: string,
+  jpeg: Uint8Array,
+  glb?: Uint8Array,
+): Promise<{ jpgUri: string; glbUri: string | null }> {
+  if (objUri.startsWith(WEB_PREFIX)) return { jpgUri: "", glbUri: null };
   const { File } = await import("expo-file-system");
   const obj = new File(objUri);
   await obj.write(objText);
   const folder = obj.parentDirectory;
   const mtlFile = new File(folder, "mesh.mtl");
   const jpgFile = new File(folder, "mesh.jpg");
+  const glbFile = new File(folder, "mesh.glb");
   if (!mtlFile.exists) mtlFile.create();
   if (!jpgFile.exists) jpgFile.create();
   await mtlFile.write(mtl);
   await jpgFile.write(jpeg);
+  if (glb) {
+    if (!glbFile.exists) glbFile.create();
+    await glbFile.write(glb);
+  }
+  return { jpgUri: jpgFile.uri, glbUri: glb ? glbFile.uri : null };
 }
 
 export async function writeFingerprints(meshUrl: string, json: string): Promise<void> {
@@ -96,16 +108,26 @@ export async function readFingerprints(meshUrl: string): Promise<string | null> 
   }
 }
 
-export async function faceTextureUri(meshUrl: string): Promise<string | null> {
-  if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return null;
+export async function faceModelUris(meshUrl: string): Promise<{ jpgUri: string | null; glbUri: string | null; jpgBytes: number }> {
+  if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return { jpgUri: null, glbUri: null, jpgBytes: 0 };
   try {
     const { File } = await import("expo-file-system");
-    const jpg = new File(new File(meshUrl).parentDirectory, "mesh.jpg");
-    return jpg.exists ? jpg.uri : null;
+    const folder = new File(meshUrl).parentDirectory;
+    const jpg = new File(folder, "mesh.jpg");
+    const glb = new File(folder, "mesh.glb");
+    return {
+      jpgUri: jpg.exists ? jpg.uri : null,
+      glbUri: glb.exists ? glb.uri : null,
+      jpgBytes: jpg.exists && typeof jpg.size === "number" ? jpg.size : 0,
+    };
   } catch (error) {
     logError("texture lookup", error, { scheme: uriScheme(meshUrl) });
-    return null;
+    return { jpgUri: null, glbUri: null, jpgBytes: 0 };
   }
+}
+
+export async function faceTextureUri(meshUrl: string): Promise<string | null> {
+  return (await faceModelUris(meshUrl)).jpgUri;
 }
 
 function uriScheme(meshUrl: string): string {

@@ -28,6 +28,7 @@ export type DepthSample = {
 
 type NativeModule = {
   captureColor: () => Promise<ColorFrame>;
+  captureArColor?: () => Promise<ColorFrame & { bytes?: number }>;
   describe: (jpegBase64: string) => Promise<{ points?: NativeFeature[]; sharpness?: number; error?: string }>;
   sampleDepth: () => Promise<DepthSample>;
 };
@@ -54,6 +55,14 @@ export function describeNative(jpegBase64: string) {
   const current = module();
   if (!current) return Promise.resolve({ points: [] as NativeFeature[], sharpness: 0 });
   return current.describe(jpegBase64);
+}
+
+export function captureArColor(): Promise<ColorFrame & { bytes?: number }> {
+  const current = module();
+  if (!current || !("captureArColor" in current)) {
+    return Promise.resolve({ success: false, error: "ARCore color capture is not in this install" });
+  }
+  return (current as NativeModule & { captureArColor: () => Promise<ColorFrame & { bytes?: number }> }).captureArColor();
 }
 
 export function sampleDepth(): Promise<DepthSample> {

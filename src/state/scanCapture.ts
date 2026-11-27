@@ -1,4 +1,5 @@
 import { noteDepthSample, resetDepthReport } from "../device/depthReport";
+import { noteKeyframeCaptured } from "../device/textureReport";
 import { dist, length, sub } from "../domain/vec";
 import type { Vector3 } from "../domain/types";
 import { coverageAdvice, coverageGrid, type CoverageCell } from "../mesh/coverage";
@@ -136,6 +137,7 @@ export function addScanPhoto(photo: ScanPhoto): void {
     return;
   }
   photos.push(photo);
+  noteKeyframeCaptured(Math.round((photo.jpegBase64.length * 3) / 4));
   if (photos.length > 24) dropMostRedundant();
 }
 

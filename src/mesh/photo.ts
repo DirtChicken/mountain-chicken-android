@@ -27,18 +27,52 @@ export type RgbaImage = {
 
 const SAND = [196, 165, 116];
 
+export type PhotoFit = { flipX: boolean; flipY: boolean; useOrigin: boolean };
+
 export function projectToPhoto(
   worldPoint: Vector3,
   photo: ScanPhoto,
+  fit: PhotoFit = { flipX: false, flipY: false, useOrigin: true },
 ): { x: number; y: number; score: number } | null {
   const cameraPoint = toCamera(worldPoint, photo);
   if (!cameraPoint) return null;
   const depth = -cameraPoint.z;
   if (depth < 0.08) return null;
-  const x = photo.fx * (cameraPoint.x / depth) + photo.cx;
-  const y = photo.cy - photo.fy * (cameraPoint.y / depth);
+  const x = fit.flipX
+    ? photo.cx - photo.fx * (cameraPoint.x / depth)
+    : photo.fx * (cameraPoint.x / depth) + photo.cx;
+  const y = fit.flipY
+    ? photo.cy + photo.fy * (cameraPoint.y / depth)
+    : photo.cy - photo.fy * (cameraPoint.y / depth);
   if (x < 1 || y < 1 || x >= photo.width - 1 || y >= photo.height - 1) return null;
   return { x, y, score: depth };
+}
+
+/** Pick the camera-to-photo mapping that actually lands the rock inside the picture. */
+export function choosePhotoFit(mesh: SurfaceMesh, photo: ScanPhoto, origin: Vector3): PhotoFit {
+  const options: PhotoFit[] = [];
+  for (const useOrigin of [true, false]) {
+    for (const flipY of [false, true]) {
+      for (const flipX of [false, true]) options.push({ flipX, flipY, useOrigin });
+    }
+  }
+  let best = options[0];
+  let bestHits = -1;
+  const count = Math.floor(mesh.positions.length / 3);
+  const step = Math.max(1, Math.floor(count / 24));
+  for (const fit of options) {
+    let hits = 0;
+    for (let vertex = 0; vertex < count; vertex += step) {
+      const local = at(mesh.positions, vertex);
+      const world = fit.useOrigin ? add(local, origin) : local;
+      if (projectToPhoto(world, photo, fit)) hits++;
+    }
+    if (hits > bestHits) {
+      bestHits = hits;
+      best = fit;
+    }
+  }
+  return best;
 }
 
 export function samplePhoto(image: RgbaImage, x: number, y: number): [number, number, number] {
@@ -65,7 +99,7 @@ export function colorVertices(
   for (let vertex = 0; vertex < count; vertex++) {
     const local = at(mesh.positions, vertex);
     const normal = at(mesh.normals, vertex);
-    const color = colorAt(add(local, origin), normal, photos, images);
+    const color = colorAt(local, normal, photos, images, origin, [], fitsFor(photos, mesh, origin));
     colors[vertex * 3] = color[0];
     colors[vertex * 3 + 1] = color[1];
     colors[vertex * 3 + 2] = color[2];
@@ -121,7 +155,7 @@ export function bakeFaceTexture(
           y: n0.y * w0 + n1.y * w1 + n2.y * w2,
           z: n0.z * w0 + n1.z * w1 + n2.z * w2,
         });
-        const color = colorAt(add(point, origin), normal, photos, images, gains);
+        const color = colorAt(point, normal, photos, images, origin, gains, fitsFor(photos, mesh, origin));
         const pixel = (y * size + x) * 4;
         rgba[pixel] = color[0];
         rgba[pixel + 1] = color[1];
@@ -158,12 +192,26 @@ export function texturedObj(mesh: SurfaceMesh, uvs: Float32Array): { obj: string
   return { obj: lines.join("\n") + "\n", mtl };
 }
 
+const fitCache = new WeakMap<ScanPhoto, PhotoFit>();
+
+function fitsFor(photos: ScanPhoto[], mesh: SurfaceMesh, origin: Vector3): PhotoFit[] {
+  return photos.map((photo) => {
+    const cached = fitCache.get(photo);
+    if (cached) return cached;
+    const fit = choosePhotoFit(mesh, photo, origin);
+    fitCache.set(photo, fit);
+    return fit;
+  });
+}
+
 function colorAt(
-  world: Vector3,
+  local: Vector3,
   normal: Vector3,
   photos: ScanPhoto[],
   images: RgbaImage[],
+  origin: Vector3,
   gains: number[] = [],
+  fits: PhotoFit[] = [],
 ): [number, number, number] {
   const hits: { weight: number; rgb: [number, number, number] }[] = [];
   const unit = normalize(normal);
@@ -171,7 +219,9 @@ function colorAt(
     const photo = photos[i];
     const image = images[i];
     if (!image) continue;
-    const projected = projectToPhoto(world, photo);
+    const fit = fits[i] ?? { flipX: false, flipY: false, useOrigin: true };
+    const world = fit.useOrigin ? add(local, origin) : local;
+    const projected = projectToPhoto(world, photo, fit);
     if (!projected) continue;
     const eye = cameraPosition(photo);
     if (!eye) continue;

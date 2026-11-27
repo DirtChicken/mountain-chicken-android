@@ -12,6 +12,7 @@ import {
   ViroScene,
   ViroSphere,
 } from "@reactvision/react-viro";
+import { noteTextureLoad } from "../device/textureReport";
 import { noteScreen } from "../device/diagnostics";
 import type { Route, RoutePoint, Vector3 } from "../domain/types";
 import { diagonal, midpoint } from "../domain/vec";
@@ -37,6 +38,7 @@ type Props = {
   onPick?: (point: Vector3) => void;
   hint?: string;
   objUri?: string | null;
+  glbUri?: string | null;
   textureUri?: string | null;
 };
 
@@ -51,6 +53,7 @@ const camera = {
   revision: 0,
   onPick: undefined as ((point: Vector3) => void) | undefined,
   objUri: null as string | null,
+  glbUri: null as string | null,
   textureUri: null as string | null,
   width: 1,
   height: 1,
@@ -133,12 +136,20 @@ function RockScene() {
         focalPoint={[camera.target.x, camera.target.y, camera.target.z]}
         fieldOfView={48}
       />
-      {camera.textureUri && camera.objUri ? (
+      {camera.glbUri ? (
+        <Viro3DObject
+          source={{ uri: camera.glbUri }}
+          type="GLB"
+          onLoadEnd={() => noteTextureLoad(true)}
+          onError={(event) => noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"))}
+        />
+      ) : camera.textureUri && camera.objUri ? (
         <Viro3DObject
           source={{ uri: camera.objUri }}
           resources={[{ uri: camera.textureUri.replace(/mesh\.jpg$/, "mesh.mtl") }, { uri: camera.textureUri }]}
           type="OBJ"
-          materials={["mcPhoto"]}
+          onLoadEnd={() => noteTextureLoad(true)}
+          onError={(event) => noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"))}
         />
       ) : placed.vertices.length > 0 ? (
         <ViroGeometry
@@ -178,7 +189,7 @@ function RouteLine({ points }: { points: RoutePoint[] }) {
   );
 }
 
-export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objUri = null, textureUri = null }: Props) {
+export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objUri = null, glbUri = null, textureUri = null }: Props) {
   const [, bump] = useState(0);
   // The Viro scene function is captured once and reads this object while the view mounts.
   /* eslint-disable react-hooks/immutability, react-hooks/globals */
@@ -188,6 +199,7 @@ export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objU
   camera.draft = draft;
   camera.onPick = onPick;
   camera.objUri = objUri;
+  camera.glbUri = glbUri;
   camera.textureUri = textureUri;
   camera.target = finiteTarget(mesh);
   if (camera.distance < 0.2) {
@@ -195,17 +207,6 @@ export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objU
     camera.distance = Number.isFinite(span) ? Math.max(0.6, span * 1.55) : 2.5;
   }
   /* eslint-enable react-hooks/immutability */
-
-  useEffect(() => {
-    if (!textureUri) return;
-    ViroMaterials.createMaterials({
-      mcPhoto: {
-        lightingModel: "Lambert",
-        diffuseTexture: { uri: textureUri },
-        cullMode: "None",
-      },
-    });
-  }, [textureUri]);
 
   useEffect(() => {
     noteScreen("plot: 3d view mounted", textureUri ? "photo" : "plain");

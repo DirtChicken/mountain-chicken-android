@@ -14,6 +14,7 @@ import {
 } from "@reactvision/react-viro";
 import { originForAnchor, scanPointToWorld } from "../domain/frame";
 import type { Route, Vector3 } from "../domain/types";
+import { noteTextureLoad } from "../device/textureReport";
 import { logError } from "../log";
 import { basePoint } from "../mesh/reconstruct";
 import type { SurfaceMesh } from "../mesh/types";
@@ -44,6 +45,7 @@ type Live = {
   hitCenter: null | (() => Promise<Vector3 | null>);
   objUri: string | null;
   textureUri: string | null;
+  glbUri: string | null;
 };
 
 const live: Live = {
@@ -57,6 +59,7 @@ const live: Live = {
   hitCenter: null,
   objUri: null,
   textureUri: null,
+  glbUri: null,
 };
 
 function SpaceScene() {
@@ -91,7 +94,17 @@ function SpaceScene() {
     <ViroARScene ref={sceneRef} anchorDetectionTypes={["PlanesHorizontal", "PlanesVertical"]}>
       <ViroAmbientLight color="#ffffff" intensity={500} />
       <ViroDirectionalLight color="#fff4e0" direction={[0.2, -1, -0.35]} intensity={900} />
-      {live.textureUri && live.objUri ? (
+      {live.glbUri ? (
+        <Viro3DObject
+          source={{ uri: live.glbUri }}
+          type="GLB"
+          position={[live.origin.x, live.origin.y, live.origin.z]}
+          rotation={[0, (live.yaw * 180) / Math.PI, 0]}
+          scale={[live.scale, live.scale, live.scale]}
+          onLoadEnd={() => noteTextureLoad(true)}
+          onError={(event) => noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"))}
+        />
+      ) : live.textureUri && live.objUri ? (
         <Viro3DObject
           source={{ uri: live.objUri }}
           resources={[{ uri: live.textureUri.replace(/mesh\.jpg$/, "mesh.mtl") }, { uri: live.textureUri }]}
@@ -99,7 +112,8 @@ function SpaceScene() {
           position={[live.origin.x, live.origin.y, live.origin.z]}
           rotation={[0, (live.yaw * 180) / Math.PI, 0]}
           scale={[live.scale, live.scale, live.scale]}
-          materials={["mcPhoto"]}
+          onLoadEnd={() => noteTextureLoad(true)}
+          onError={(event) => noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"))}
         />
       ) : placed ? (
         <ViroGeometry
@@ -154,11 +168,13 @@ export function NativeArSpace({
   routes,
   objUri = null,
   textureUri = null,
+  glbUri = null,
 }: {
   mesh: SurfaceMesh;
   routes: Route[];
   objUri?: string | null;
   textureUri?: string | null;
+  glbUri?: string | null;
 }) {
   const [locked, setLocked] = useState(false);
   const [yawDeg, setYawDeg] = useState(0);
@@ -183,6 +199,7 @@ export function NativeArSpace({
   live.locked = locked;
   live.objUri = objUri;
   live.textureUri = textureUri;
+  live.glbUri = glbUri;
   /* eslint-enable react-hooks/immutability */
 
   const lock = async () => {

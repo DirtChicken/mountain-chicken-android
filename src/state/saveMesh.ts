@@ -1,12 +1,15 @@
+import { encode as encodeJpeg } from "jpeg-js";
 import { Platform } from "react-native";
 import { buildRoute, buildScan } from "../domain/create";
 import type { RockScan, Route, RoutePoint, Vector3 } from "../domain/types";
 import { logError, logInfo } from "../log";
-import { bakeFaceTexture, cameraMatrix, decodeScanPhoto, texturedObj, type ScanPhoto } from "../mesh/photo";
+import { meshToGlb } from "../mesh/glb";
+import { bakeFaceTexture, cameraMatrix, colorVertices, decodeScanPhoto, planarUvs, texturedObj, type ScanPhoto } from "../mesh/photo";
 import { prepareMeshForDisplay, VIEWER_LIMITS } from "../mesh/prepareMesh";
 import { reconstructSurface } from "../mesh/reconstruct";
 import type { SurfaceMesh } from "../mesh/types";
 import { fingerprintsFromPhotos, type FingerprintMap } from "../reloc/map";
+import { noteTexture } from "../device/textureReport";
 import { readLocation } from "../device/location";
 import { readFingerprints, readMeshFile, writeFaceFiles, writeFingerprints, writeMeshFile } from "../storage/meshFiles";
 import { describeJpeg } from "../vision/frames";
@@ -171,20 +174,51 @@ function sharpest(photos: ScanPhoto[]): ScanPhoto[] {
 }
 
 async function writePhoto(meshUrl: string, mesh: SurfaceMesh, photos: ScanPhoto[], origin: Vector3): Promise<void> {
+  noteTexture({ keyframesCaptured: photos.length, keyframesUsed: 0, message: photos.length ? "Baking the face photo." : "No camera frames were saved with this scan." });
   if (photos.length === 0) return;
   try {
     const images = photos.map((photo) => decodeScanPhoto(photo));
+    const colors = colorVertices(mesh, photos, images, origin);
     const baked = bakeFaceTexture(mesh, photos, images, origin, 512);
-    if (!baked) {
-      logInfo("scan photo skipped", { reason: "no pixels landed on the mesh" });
-      return;
+    const uvs = baked?.uvs ?? planarUvs(mesh.positions);
+    const jpeg = baked?.jpeg ?? sandJpeg();
+    const files = texturedObj(mesh, uvs);
+    const glb = meshToGlb(mesh, colors, uvs, jpeg);
+    const written = await writeFaceFiles(meshUrl, files.obj, files.mtl, jpeg, glb);
+    let painted = 0;
+    for (let i = 0; i < colors.length; i += 3) {
+      if (colors[i] !== 196 || colors[i + 1] !== 165 || colors[i + 2] !== 116) painted++;
     }
-    const files = texturedObj(mesh, baked.uvs);
-    await writeFaceFiles(meshUrl, files.obj, files.mtl, baked.jpeg);
-    logInfo("saved face photo", { texels: baked.coloredTexels, bytes: baked.jpeg.length });
+    noteTexture({
+      keyframesCaptured: photos.length,
+      keyframesUsed: photos.length,
+      textureBytes: jpeg.length,
+      textureWidth: 512,
+      textureHeight: baked ? 512 : 16,
+      jpgUri: written.jpgUri,
+      glbUri: written.glbUri,
+      paintedVertices: painted,
+      load: "not-opened",
+      message: painted > 0
+        ? `Baked ${painted} colored vertices from ${photos.length} photos.`
+        : "Photos were saved, but none of them landed on the mesh. The flat image is still in Diagnostics.",
+    });
+    logInfo("saved face photo", { texels: baked?.coloredTexels ?? 0, bytes: jpeg.length, painted });
   } catch (error) {
+    noteTexture({ message: error instanceof Error ? error.message : "The face photo could not be saved." });
     logError("save face photo", error);
   }
+}
+
+function sandJpeg(): Uint8Array {
+  const data = new Uint8Array(16 * 16 * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 196;
+    data[i + 1] = 165;
+    data[i + 2] = 116;
+    data[i + 3] = 255;
+  }
+  return encodeJpeg({ data, width: 16, height: 16 }, 80).data;
 }
 
 function finiteBounds(mesh: SurfaceMesh): SurfaceMesh["bounds"] | undefined {

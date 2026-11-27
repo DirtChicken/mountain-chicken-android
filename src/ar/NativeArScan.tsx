@@ -13,6 +13,7 @@ import {
 import { bestHit, hitPosition, sampleKind } from "./hits";
 import { scanStage } from "./scanStage";
 import { addScanPhoto, getCaptureSnapshot, noteCameraOrigin, noteSample, noteTracking, noteWorldMesh } from "../state/scanCapture";
+import { captureArColor } from "rock-vision";
 import { captureDisplayColor } from "../vision/frames";
 import { pullMeasuredDepth } from "../vision/depth";
 
@@ -122,10 +123,24 @@ async function capturePhoto(
 ): Promise<void> {
   if (getCaptureSnapshot().tracking !== "locked") return;
   try {
-    const [color, frame] = await Promise.all([
+    const [arColor, color, frame] = await Promise.all([
+      captureArColor().catch(() => ({ success: false as const })),
       captureDisplayColor(),
       navigator?.captureVPSQueryFrame?.(960).catch(() => undefined),
     ]);
+    if (arColor.success && arColor.jpegBase64 && arColor.width && arColor.height && arColor.fx && arColor.fy && arColor.worldFromCamera) {
+      addScanPhoto({
+        width: arColor.width,
+        height: arColor.height,
+        fx: arColor.fx,
+        fy: arColor.fy,
+        cx: arColor.cx ?? arColor.width / 2,
+        cy: arColor.cy ?? arColor.height / 2,
+        worldFromCamera: arColor.worldFromCamera,
+        jpegBase64: arColor.jpegBase64,
+      });
+      return;
+    }
     let position;
     let forward;
     let up;

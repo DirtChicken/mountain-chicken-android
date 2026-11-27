@@ -1,13 +1,28 @@
 package expo.modules.rockvision
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
+import java.io.ByteArrayOutputStream
 import java.lang.reflect.InvocationTargetException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 object DepthSampler {
+  fun captureColor(activity: Activity): Map<String, Any> {
+    val root = activity.window?.decorView ?: return mapOf("success" to false, "error" to "No window")
+    val ar = findNamed(root, "com.viro.core.ViroViewARCore") ?: return mapOf("success" to false, "error" to "No AR view")
+    val frame = findTyped(ar, "com.google.ar.core.Frame", 0) ?: return mapOf("success" to false, "error" to "No ARCore frame")
+    val image = invokeImage(frame, "acquireCameraImage") ?: return mapOf("success" to false, "error" to "Camera image not ready")
+    try {
+      return yuvToColor(frame, image)
+    } finally {
+      closeImage(image)
+    }
+  }
+
   fun sample(activity: Activity): Map<String, Any> {
     val root = activity.window?.decorView
       ?: return empty("unavailable", "The camera view is not on screen.")
@@ -179,6 +194,75 @@ object DepthSampler {
       }
     }
     return null
+  }
+
+  private fun yuvToColor(frame: Any, image: Any): Map<String, Any> {
+    val width = image.javaClass.getMethod("getWidth").invoke(image) as Int
+    val height = image.javaClass.getMethod("getHeight").invoke(image) as Int
+    val planes = image.javaClass.getMethod("getPlanes").invoke(image) as Array<*>
+    val yPlane = planes[0]!!
+    val uPlane = planes.getOrNull(1)
+    val vPlane = planes.getOrNull(2)
+    val yBuffer = planeBuffer(yPlane)
+    val uBuffer = uPlane?.let { planeBuffer(it) }
+    val vBuffer = vPlane?.let { planeBuffer(it) }
+    val step = maxOf(1, maxOf(width, height) / 960)
+    val outWidth = width / step
+    val outHeight = height / step
+    val pixels = IntArray(outWidth * outHeight)
+    for (y in 0 until outHeight) {
+      for (x in 0 until outWidth) {
+        val sx = x * step
+        val sy = y * step
+        val luma = yBuffer.get(sy, sx).toInt() and 0xFF
+        val chromaU = uBuffer?.get(sy / 2, sx / 2)?.toInt()?.and(0xFF) ?: 128
+        val chromaV = vBuffer?.get(sy / 2, sx / 2)?.toInt()?.and(0xFF) ?: 128
+        val r = (luma + 1.402 * (chromaV - 128)).toInt().coerceIn(0, 255)
+        val g = (luma - 0.344136 * (chromaU - 128) - 0.714136 * (chromaV - 128)).toInt().coerceIn(0, 255)
+        val b = (luma + 1.772 * (chromaU - 128)).toInt().coerceIn(0, 255)
+        pixels[y * outWidth + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+      }
+    }
+    val bitmap = Bitmap.createBitmap(pixels, outWidth, outHeight, Bitmap.Config.ARGB_8888)
+    val stream = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 86, stream)
+    val jpeg = stream.toByteArray()
+    val camera = frame.javaClass.getMethod("getCamera").invoke(frame)
+    val intrinsics = camera.javaClass.getMethod("getImageIntrinsics").invoke(camera)
+    val focal = intrinsics.javaClass.getMethod("getFocalLength").invoke(intrinsics) as FloatArray
+    val principal = intrinsics.javaClass.getMethod("getPrincipalPoint").invoke(intrinsics) as FloatArray
+    val pose = camera.javaClass.getMethod("getPose").invoke(camera)
+    val matrix = FloatArray(16)
+    pose.javaClass.getMethod("toMatrix", FloatArray::class.java, Int::class.javaPrimitiveType).invoke(pose, matrix, 0)
+    val scale = 1f / step
+    return mapOf(
+      "success" to true,
+      "jpegBase64" to Base64.encodeToString(jpeg, Base64.NO_WRAP),
+      "width" to outWidth,
+      "height" to outHeight,
+      "bytes" to jpeg.size,
+      "fx" to focal[0] * scale,
+      "fy" to focal[1] * scale,
+      "cx" to principal[0] * scale,
+      "cy" to principal[1] * scale,
+      "worldFromCamera" to matrix.toList(),
+      "source" to "arcore-yuv",
+    )
+  }
+
+  private class Plane(val bytes: ByteBuffer, val rowStride: Int, val pixelStride: Int) {
+    fun get(row: Int, col: Int): Byte {
+      val index = row * rowStride + col * pixelStride
+      if (index < 0 || index >= bytes.limit()) return 0
+      return bytes.get(index)
+    }
+  }
+
+  private fun planeBuffer(plane: Any): Plane {
+    val buffer = (plane.javaClass.getMethod("getBuffer").invoke(plane) as ByteBuffer).duplicate().order(ByteOrder.LITTLE_ENDIAN)
+    val rowStride = plane.javaClass.getMethod("getRowStride").invoke(plane) as Int
+    val pixelStride = plane.javaClass.getMethod("getPixelStride").invoke(plane) as Int
+    return Plane(buffer, rowStride, pixelStride)
   }
 
   private fun empty(mode: String, message: String): Map<String, Any> {

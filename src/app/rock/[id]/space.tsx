@@ -7,7 +7,7 @@ import { ArSpaceView } from "../../../ar/ArSpaceView";
 import { ViewerBoundary } from "../../../components/ViewerBoundary";
 import { isArAvailable } from "../../../ar/availability";
 import type { SurfaceMesh } from "../../../mesh/types";
-import { faceTextureUri, loadDisplayMesh } from "../../../storage/meshFiles";
+import { faceModelUris, loadDisplayMesh } from "../../../storage/meshFiles";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
@@ -24,6 +24,7 @@ export default function SpaceScreen() {
   );
   const [mesh, setMesh] = useState<SurfaceMesh | null>(null);
   const [textureUri, setTextureUri] = useState<string | null>(null);
+  const [glbUri, setGlbUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,8 +33,11 @@ export default function SpaceScreen() {
     void loadDisplayMesh(scan.meshUrl)
       .then(async (loaded) => {
         if (!cancelled) setMesh(loaded);
-        const photo = scan.meshUrl ? await faceTextureUri(scan.meshUrl) : null;
-        if (!cancelled) setTextureUri(photo);
+        const face = scan.meshUrl ? await faceModelUris(scan.meshUrl) : null;
+        if (!cancelled) {
+          setTextureUri(face?.jpgUri ?? null);
+          setGlbUri(face?.glbUri ?? null);
+        }
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not open the model");
@@ -49,7 +53,7 @@ export default function SpaceScreen() {
       {!error && !mesh ? <Text style={styles.missing}>Opening the model…</Text> : null}
       {mesh ? (
         <ViewerBoundary>
-          <ArSpaceView mesh={mesh} routes={routes} objUri={scan?.meshUrl ?? null} textureUri={textureUri} />
+          <ArSpaceView mesh={mesh} routes={routes} objUri={scan?.meshUrl ?? null} textureUri={textureUri} glbUri={glbUri} />
         </ViewerBoundary>
       ) : null}
       <SafeAreaView style={styles.top} pointerEvents="box-none">

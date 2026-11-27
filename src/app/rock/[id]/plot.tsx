@@ -9,7 +9,7 @@ import type { Route, RoutePoint, Vector3 } from "../../../domain/types";
 import { routeLengthMeters } from "../../../domain/route";
 import { highestIndex, vertexCount } from "../../../mesh/prepareMesh";
 import type { SurfaceMesh } from "../../../mesh/types";
-import { faceTextureUri, loadDisplayMesh } from "../../../storage/meshFiles";
+import { faceModelUris, loadDisplayMesh } from "../../../storage/meshFiles";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
@@ -20,6 +20,7 @@ type DrawProps = {
   onPick?: (point: Vector3) => void;
   hint?: string;
   objUri?: string | null;
+  glbUri?: string | null;
   textureUri?: string | null;
 };
 
@@ -44,6 +45,7 @@ export default function PlotScreen() {
   const addRoute = useLibrary((state) => state.addRoute);
   const [mesh, setMesh] = useState<SurfaceMesh | null>(null);
   const [textureUri, setTextureUri] = useState<string | null>(null);
+  const [glbUri, setGlbUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pointType, setPointType] = useState<RoutePoint["type"]>("hold");
   const [draft, setDraft] = useState<RoutePoint[]>([]);
@@ -78,8 +80,11 @@ export default function PlotScreen() {
         if (cancelled) return;
         noteScreen("plot: model loaded", `${vertexCount(loaded)} vertices`);
         setMesh(loaded);
-        const photo = scan.meshUrl ? await faceTextureUri(scan.meshUrl) : null;
-        if (!cancelled) setTextureUri(photo);
+        const face = scan.meshUrl ? await faceModelUris(scan.meshUrl) : null;
+        if (!cancelled) {
+          setTextureUri(face?.jpgUri ?? null);
+          setGlbUri(face?.glbUri ?? null);
+        }
       })
       .catch((loadError: unknown) => {
         noteError(loadError);
@@ -148,8 +153,9 @@ export default function PlotScreen() {
             draft={draft}
             onPick={pick}
             objUri={scan.meshUrl}
+            glbUri={glbUri}
             textureUri={textureUri}
-            hint={textureUri ? "Photo of the face, in the scan's meters. One finger turns it. Pinch zooms. Tap to plot." : "No photo was saved with this scan, so the rock is plain stone. One finger turns it. Tap to plot."}
+            hint={glbUri || textureUri ? "Photo of the face, in the scan's meters. One finger turns it. Pinch zooms. Tap to plot." : "No photo was saved with this scan, so the rock is plain stone. One finger turns it. Tap to plot."}
           />
         </ViewerBoundary>
       ) : (
