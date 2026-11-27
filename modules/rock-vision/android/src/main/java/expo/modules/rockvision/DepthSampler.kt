@@ -11,91 +11,103 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 object DepthSampler {
-  fun captureColor(activity: Activity): Map<String, Any> {
-    val root = activity.window?.decorView ?: return mapOf("success" to false, "error" to "No window")
-    val ar = findNamed(root, "com.viro.core.ViroViewARCore") ?: return mapOf("success" to false, "error" to "No AR view")
-    val frame = findTyped(ar, "com.google.ar.core.Frame", 0) ?: return mapOf("success" to false, "error" to "No ARCore frame")
-    val image = invokeImage(frame, "acquireCameraImage") ?: return mapOf("success" to false, "error" to "Camera image not ready")
-    try {
-      return yuvToColor(frame, image)
-    } finally {
-      closeImage(image)
+  private val gate = Any()
+
+  fun captureColor(activity: Activity): Map<String, Any> = readFrame(activity, wantColor = true)
+
+  fun sample(activity: Activity): Map<String, Any> = readFrame(activity, wantColor = false)
+
+  fun readFrame(activity: Activity, wantColor: Boolean): Map<String, Any> {
+    synchronized(gate) {
+      val root = activity.window?.decorView
+        ?: return skipped("The camera view is not on screen.")
+      val ar = findNamed(root, "com.viro.core.ViroViewARCore")
+        ?: return skipped("The AR camera is not on screen.")
+      val session = findTyped(ar, "com.google.ar.core.Session", 0)
+      val frame = findTyped(ar, "com.google.ar.core.Frame", 0)
+        ?: return skipped("No ARCore frame is available on this tick.")
+      val mode = readMode(session)
+      val read = readDepth(frame)
+      var color: Map<String, Any>? = null
+      var colorError: String? = null
+      if (wantColor) {
+        var image: Any? = null
+        try {
+          val acquired = acquire(frame, "acquireCameraImage")
+          image = acquired.image
+          if (image != null) color = yuvToColor(frame, image) else colorError = acquired.error
+        } finally {
+          closeImage(image)
+        }
+      }
+      val error = read.error ?: colorError
+      return mapOf(
+        "success" to true,
+        "skipped" to (read.points.isEmpty()),
+        "mode" to mode,
+        "source" to read.source,
+        "error" to (error ?: ""),
+        "message" to if (read.points.isNotEmpty()) "Depth is on ($mode)." else (error ?: "This depth frame is not ready yet."),
+        "points" to read.points,
+      ) + (color ?: emptyMap())
     }
   }
 
-  fun sample(activity: Activity): Map<String, Any> {
-    val root = activity.window?.decorView
-      ?: return empty("unavailable", "The camera view is not on screen.")
-    val ar = findNamed(root, "com.viro.core.ViroViewARCore")
-      ?: return empty("unavailable", "The AR camera is not on screen.")
-    val session = findTyped(ar, "com.google.ar.core.Session", 0)
-    val frame = findTyped(ar, "com.google.ar.core.Frame", 0)
-    if (session == null && frame == null) {
-      return empty(
-        "unavailable",
-        "ARCore depth is not readable from this session. The scan will measure the face from overlapping photos instead.",
-      )
-    }
-    val mode = session?.let { ensureAutomatic(it) } ?: "unknown"
-    val live = frame ?: return mapOf(
-      "success" to true,
-      "mode" to mode,
-      "source" to "none",
-      "message" to depthMessage(mode, 0),
-      "points" to emptyList<Map<String, Float>>(),
-    )
-    val read = readDepth(live)
-    return mapOf(
-      "success" to true,
-      "mode" to mode,
-      "source" to read.source,
-      "message" to depthMessage(mode, read.points.size),
-      "points" to read.points,
-    )
-  }
-
-  private fun ensureAutomatic(session: Any): String {
-    val config = session.javaClass.declaredFields.firstOrNull { it.type.name == "com.google.ar.core.Config" }?.let { field ->
+  private fun readMode(session: Any?): String {
+    if (session == null) return "unknown"
+    return try {
+      val field = session.javaClass.declaredFields.firstOrNull { it.type.name == "com.google.ar.core.Config" } ?: return "unknown"
       field.isAccessible = true
-      field.get(session)
-    } ?: return "unknown"
-    val current = config.javaClass.getMethod("getDepthMode").invoke(config).toString()
-    if (current != "DISABLED") return current.lowercase()
-    val modeClass = Class.forName("com.google.ar.core.Config\$DepthMode")
-    val automatic = modeClass.enumConstants?.firstOrNull { it.toString() == "AUTOMATIC" } ?: return "disabled"
-    val supported = session.javaClass.getMethod("isDepthModeSupported", modeClass).invoke(session, automatic) as Boolean
-    if (!supported) return "disabled"
-    config.javaClass.getMethod("setDepthMode", modeClass).invoke(config, automatic)
-    session.javaClass.getMethod("configure", config.javaClass).invoke(session, config)
-    return "automatic"
+      val config = field.get(session) ?: return "unknown"
+      config.javaClass.getMethod("getDepthMode").invoke(config).toString().lowercase()
+    } catch (error: Exception) {
+      "unknown"
+    }
   }
 
-  private data class Read(val source: String, val points: List<Map<String, Float>>)
+  private data class Read(val source: String, val points: List<Map<String, Float>>, val error: String?)
+  private data class Acquired(val image: Any?, val error: String?)
 
   private fun readDepth(frame: Any): Read {
-    val raw = invokeImage(frame, "acquireRawDepthImage16Bits")
-    if (raw != null) {
-      val confidence = invokeImage(frame, "acquireRawDepthConfidenceImage")
-      val points = unproject(frame, raw, confidence)
+    var raw: Any? = null
+    var confidence: Any? = null
+    var smooth: Any? = null
+    return try {
+      val rawAcquired = acquire(frame, "acquireRawDepthImage16Bits")
+      raw = rawAcquired.image
+      if (raw != null) {
+        confidence = acquire(frame, "acquireRawDepthConfidenceImage").image
+        val points = unproject(frame, raw, confidence)
+        if (points.isNotEmpty()) return Read("arcore-raw", points, null)
+      }
+      val smoothAcquired = acquire(frame, "acquireDepthImage16Bits")
+      smooth = smoothAcquired.image
+      if (smooth == null) {
+        return Read("none", emptyList(), smoothAcquired.error ?: rawAcquired.error)
+      }
+      val points = unproject(frame, smooth, null)
+      Read(if (points.isEmpty()) "none" else "arcore-smooth", points, if (points.isEmpty()) smoothAcquired.error else null)
+    } finally {
       closeImage(raw)
       closeImage(confidence)
-      if (points.isNotEmpty()) return Read("arcore-raw", points)
+      closeImage(smooth)
     }
-    val smooth = invokeImage(frame, "acquireDepthImage16Bits") ?: return Read("none", emptyList())
-    val points = unproject(frame, smooth, null)
-    closeImage(smooth)
-    return Read(if (points.isEmpty()) "none" else "arcore-smooth", points)
   }
 
-  private fun invokeImage(frame: Any, method: String): Any? {
+  private fun acquire(frame: Any, method: String): Acquired {
     return try {
-      frame.javaClass.getMethod(method).invoke(frame)
+      Acquired(frame.javaClass.getMethod(method).invoke(frame), null)
     } catch (error: InvocationTargetException) {
-      val name = error.cause?.javaClass?.name ?: ""
-      if (name.contains("NotYetAvailable")) null else null
-    } catch (_: Exception) {
-      null
+      Acquired(null, describe(error.cause ?: error))
+    } catch (error: Exception) {
+      Acquired(null, describe(error))
     }
+  }
+
+  private fun describe(error: Throwable): String {
+    val name = error.javaClass.simpleName.ifBlank { error.javaClass.name }
+    val detail = error.message?.trim().orEmpty()
+    return if (detail.isEmpty()) name else "$name: $detail"
   }
 
   private fun unproject(frame: Any, image: Any, confidence: Any?): List<Map<String, Float>> {
@@ -263,6 +275,18 @@ object DepthSampler {
     val rowStride = plane.javaClass.getMethod("getRowStride").invoke(plane) as Int
     val pixelStride = plane.javaClass.getMethod("getPixelStride").invoke(plane) as Int
     return Plane(buffer, rowStride, pixelStride)
+  }
+
+  private fun skipped(error: String): Map<String, Any> {
+    return mapOf(
+      "success" to true,
+      "skipped" to true,
+      "mode" to "waiting",
+      "source" to "none",
+      "error" to error,
+      "message" to error,
+      "points" to emptyList<Map<String, Float>>(),
+    )
   }
 
   private fun empty(mode: String, message: String): Map<String, Any> {

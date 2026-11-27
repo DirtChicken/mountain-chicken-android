@@ -20,9 +20,11 @@ export type DepthPoint = { x: number; y: number; z: number };
 
 export type DepthSample = {
   success: boolean;
+  skipped?: boolean;
   mode: string;
   source: string;
   message: string;
+  error?: string;
   points: DepthPoint[];
 };
 

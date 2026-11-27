@@ -27,6 +27,7 @@ export default function DiagnosticsScreen() {
       <Text style={styles.value}>{depth.mode} · {depth.source}</Text>
       <Text style={styles.meta}>{depth.samplesPerSec} samples/sec · {depth.total} this scan</Text>
       <Text style={styles.bodyText}>{depth.message}</Text>
+      {depth.lastError ? <Text style={styles.meta}>Last depth error: {depth.lastError}</Text> : null}
       <Text style={styles.label}>Face photo</Text>
       <Text style={styles.value}>{texture.keyframesCaptured} frames kept · {texture.keyframesUsed} used in the bake</Text>
       <Text style={styles.meta}>
