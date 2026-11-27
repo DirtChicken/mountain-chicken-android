@@ -75,6 +75,27 @@ export async function writeFaceFiles(objUri: string, objText: string, mtl: strin
   await jpgFile.write(jpeg);
 }
 
+export async function writeFingerprints(meshUrl: string, json: string): Promise<void> {
+  if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return;
+  const { File } = await import("expo-file-system");
+  const file = new File(new File(meshUrl).parentDirectory, "fingerprints.json");
+  if (!file.exists) file.create();
+  await file.write(json);
+}
+
+export async function readFingerprints(meshUrl: string): Promise<string | null> {
+  if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return null;
+  try {
+    const { File } = await import("expo-file-system");
+    const file = new File(new File(meshUrl).parentDirectory, "fingerprints.json");
+    if (!file.exists) return null;
+    return await file.text();
+  } catch (error) {
+    logError("fingerprint lookup", error);
+    return null;
+  }
+}
+
 export async function faceTextureUri(meshUrl: string): Promise<string | null> {
   if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return null;
   try {

@@ -4,11 +4,21 @@ import {
   ViroARScene,
   ViroARSceneNavigator,
   ViroARTrackingReasonConstants,
+  ViroGeometry,
+  ViroMaterials,
+  ViroSphere,
   ViroTrackingStateConstants,
   type ViroARHitTestResult,
 } from "@reactvision/react-viro";
 import { bestHit, hitPosition, sampleKind } from "./hits";
+import { scanStage } from "./scanStage";
 import { addScanPhoto, getCaptureSnapshot, noteCameraOrigin, noteSample, noteTracking, noteWorldMesh } from "../state/scanCapture";
+import { captureDisplayColor } from "../vision/frames";
+
+ViroMaterials.createMaterials({
+  mcSnap: { lightingModel: "Lambert", diffuseColor: "#C4A574", cullMode: "None" },
+  mcSnapHold: { lightingModel: "Constant", diffuseColor: "#F6F1E7" },
+});
 
 type SceneProps = {
   arSceneNavigator: {
@@ -74,7 +84,20 @@ function ScanScene(props?: SceneProps) {
         if (!hit) return;
         noteSample(hitPosition(hit), sampleKind(hit.type));
       }}
-    />
+    >
+      {scanStage.vertices && scanStage.normals && scanStage.triangles ? (
+        <ViroGeometry
+          key={`snap-${scanStage.revision}`}
+          vertices={scanStage.vertices}
+          normals={scanStage.normals}
+          triangleIndices={scanStage.triangles}
+          materials={["mcSnap"]}
+        />
+      ) : null}
+      {scanStage.holds.map((hold) => (
+        <ViroSphere key={hold.id} position={hold.position} radius={0.045} materials={["mcSnapHold"]} />
+      ))}
+    </ViroARScene>
   );
 }
 
@@ -82,10 +105,12 @@ async function capturePhoto(
   scene: ViroARScene | null,
   navigator: SceneProps["arSceneNavigator"] | undefined,
 ): Promise<void> {
-  if (!navigator?.captureVPSQueryFrame || getCaptureSnapshot().tracking !== "locked") return;
+  if (getCaptureSnapshot().tracking !== "locked") return;
   try {
-    const frame = await navigator.captureVPSQueryFrame(480);
-    if (!frame.success || !frame.image || !frame.width || !frame.height || !frame.fx || !frame.fy) return;
+    const [color, frame] = await Promise.all([
+      captureDisplayColor(),
+      navigator?.captureVPSQueryFrame?.(960).catch(() => undefined),
+    ]);
     let position;
     let forward;
     let up;
@@ -95,6 +120,40 @@ async function capturePhoto(
       forward = { x: pose.forward[0], y: pose.forward[1], z: pose.forward[2] };
       up = { x: pose.up[0], y: pose.up[1], z: pose.up[2] };
     }
+    if (color.success && color.jpegBase64 && color.width && color.height && color.fx && color.fy && color.worldFromCamera) {
+      addScanPhoto({
+        width: color.width,
+        height: color.height,
+        fx: color.fx,
+        fy: color.fy,
+        cx: color.cx ?? color.width / 2,
+        cy: color.cy ?? color.height / 2,
+        worldFromCamera: color.worldFromCamera,
+        position,
+        forward,
+        up,
+        jpegBase64: color.jpegBase64,
+      });
+      return;
+    }
+    if (color.success && color.jpegBase64 && color.width && color.height) {
+      const hfov = frame?.success && frame.fx && frame.width ? 2 * Math.atan(frame.width / 2 / frame.fx) : 1.05;
+      const fx = (color.width / 2) / Math.tan(hfov / 2);
+      addScanPhoto({
+        width: color.width,
+        height: color.height,
+        fx,
+        fy: fx,
+        cx: color.width / 2,
+        cy: color.height / 2,
+        position,
+        forward,
+        up,
+        jpegBase64: color.jpegBase64,
+      });
+      return;
+    }
+    if (!frame?.success || !frame.image || !frame.width || !frame.height || !frame.fx || !frame.fy) return;
     addScanPhoto({
       width: frame.width,
       height: frame.height,
@@ -165,12 +224,12 @@ export function NativeArScan() {
       provider="none"
       worldMeshConfig={{
         accumulate: true,
-        voxelSize: 0.03,
+        voxelSize: 0.025,
         maxMemoryMB: 96,
         maxDepth: 6,
-        stride: 2,
+        stride: 1,
         minConfidence: 0.2,
-        debugDrawEnabled: true,
+        debugDrawEnabled: false,
       }}
     />
   );

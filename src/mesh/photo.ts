@@ -82,6 +82,7 @@ export function bakeFaceTexture(
   size = 512,
 ): { jpeg: Uint8Array; uvs: Float32Array; coloredTexels: number } | null {
   if (photos.length === 0 || images.length === 0) return null;
+  const gains = exposureGains(images);
   const uvs = planarUvs(mesh.positions);
   const rgba = new Uint8Array(size * size * 4);
   let colored = 0;
@@ -120,7 +121,7 @@ export function bakeFaceTexture(
           y: n0.y * w0 + n1.y * w1 + n2.y * w2,
           z: n0.z * w0 + n1.z * w1 + n2.z * w2,
         });
-        const color = colorAt(add(point, origin), normal, photos, images);
+        const color = colorAt(add(point, origin), normal, photos, images, gains);
         const pixel = (y * size + x) * 4;
         rgba[pixel] = color[0];
         rgba[pixel + 1] = color[1];
@@ -162,9 +163,10 @@ function colorAt(
   normal: Vector3,
   photos: ScanPhoto[],
   images: RgbaImage[],
+  gains: number[] = [],
 ): [number, number, number] {
-  let bestScore = 0.2;
-  let best: [number, number, number] | null = null;
+  const hits: { weight: number; rgb: [number, number, number] }[] = [];
+  const unit = normalize(normal);
   for (let i = 0; i < photos.length; i++) {
     const photo = photos[i];
     const image = images[i];
@@ -173,12 +175,46 @@ function colorAt(
     if (!projected) continue;
     const eye = cameraPosition(photo);
     if (!eye) continue;
-    const facing = dot(normalize(normal), normalize(sub(eye, world)));
-    if (facing < bestScore) continue;
-    bestScore = facing;
-    best = samplePhoto(image, projected.x, projected.y);
+    const facing = dot(unit, normalize(sub(eye, world)));
+    if (facing < 0.18) continue;
+    const gain = gains[i] ?? 1;
+    hits.push({ weight: facing * facing, rgb: samplePhoto(image, projected.x, projected.y).map((channel) => channel * gain) as [number, number, number] });
   }
-  return best ?? [SAND[0], SAND[1], SAND[2]];
+  hits.sort((a, b) => b.weight - a.weight);
+  const used = hits.slice(0, 2);
+  let weight = 0;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  for (const hit of used) {
+    weight += hit.weight;
+    r += hit.rgb[0] * hit.weight;
+    g += hit.rgb[1] * hit.weight;
+    b += hit.rgb[2] * hit.weight;
+  }
+  if (weight <= 0) return [SAND[0], SAND[1], SAND[2]];
+  return [clampByte(r / weight), clampByte(g / weight), clampByte(b / weight)];
+}
+
+function exposureGains(images: RgbaImage[]): number[] {
+  const levels = images.map((image) => medianLuma(image));
+  const finite = levels.filter((value) => value > 12);
+  const target = finite.length ? finite.slice().sort((a, b) => a - b)[Math.floor(finite.length / 2)] : 128;
+  return levels.map((value) => Math.min(1.65, Math.max(0.6, target / Math.max(12, value))));
+}
+
+function medianLuma(image: RgbaImage): number {
+  const samples: number[] = [];
+  for (let i = 0; i < image.data.length; i += 64 * 4) {
+    samples.push(0.3 * image.data[i] + 0.59 * image.data[i + 1] + 0.11 * image.data[i + 2]);
+  }
+  if (!samples.length) return 128;
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)];
+}
+
+function clampByte(value: number): number {
+  return Math.max(0, Math.min(255, value));
 }
 
 function toCamera(world: Vector3, photo: ScanPhoto): Vector3 | null {
@@ -203,6 +239,24 @@ function toCamera(world: Vector3, photo: ScanPhoto): Vector3 | null {
     y: dot(offset, up),
     z: -dot(offset, forward),
   };
+}
+
+export function cameraMatrix(photo: ScanPhoto): Mat4 | null {
+  if (photo.worldFromCamera && photo.worldFromCamera.length === 16) return photo.worldFromCamera as Mat4;
+  if (!photo.position || !photo.forward || !photo.up) return null;
+  const forward = normalize(photo.forward);
+  const up = normalize(photo.up);
+  const right = normalize({
+    x: forward.y * up.z - forward.z * up.y,
+    y: forward.z * up.x - forward.x * up.z,
+    z: forward.x * up.y - forward.y * up.x,
+  });
+  return [
+    right.x, right.y, right.z, 0,
+    up.x, up.y, up.z, 0,
+    -forward.x, -forward.y, -forward.z, 0,
+    photo.position.x, photo.position.y, photo.position.z, 1,
+  ];
 }
 
 function cameraPosition(photo: ScanPhoto): Vector3 | null {

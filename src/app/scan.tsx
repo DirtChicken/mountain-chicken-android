@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ArScanView } from "../ar/ArScanView";
@@ -10,7 +10,17 @@ import { reconstructSurface } from "../mesh/reconstruct";
 import { chooseMeshPoints } from "../mesh/samples";
 import { getCaptureSnapshot, getScanOrigin, getScanPhotos, groupedSamples, resetCapture, type CaptureSnapshot } from "../state/scanCapture";
 import { noteScreen } from "../device/diagnostics";
-import { saveMeshScan } from "../state/saveMesh";
+import { extendMeshScan, saveMeshScan } from "../state/saveMesh";
+import { cameraMatrix } from "../mesh/photo";
+import { recognizeFrame, type FingerprintMap, type Recognition } from "../reloc/map";
+import { nudgeYaw } from "../reloc/pose";
+import { clearPlacedMesh, showPlacedMesh } from "../ar/scanStage";
+import { loadDisplayMesh, readFingerprints } from "../storage/meshFiles";
+import { describeJpeg } from "../vision/frames";
+import { useLibrary } from "../state/useLibrary";
+import type { Mat4 } from "../viewer/math";
+import type { SurfaceMesh } from "../mesh/types";
+import type { Route } from "../domain/types";
 import { colors, space } from "../theme/theme";
 
 export default function ScanScreen() {
@@ -20,12 +30,67 @@ export default function ScanScreen() {
   const [name, setName] = useState("East face");
   const [saving, setSaving] = useState(false);
   const [showName, setShowName] = useState(false);
+  const [match, setMatch] = useState<Recognition | null>(null);
+  const [extendId, setExtendId] = useState<string | null>(null);
+  const maps = useRef<FingerprintMap[]>([]);
+  const placedMesh = useRef<{ id: string; mesh: SurfaceMesh; routes: Route[] } | null>(null);
+  const twist = useRef(0);
+  const basePose = useRef<Mat4 | null>(null);
 
   useEffect(() => {
     resetCapture();
+    clearPlacedMesh();
     const timer = setInterval(() => setCapture(getCaptureSnapshot()), 300);
+    const scans = useLibrary.getState().scans;
+    void Promise.all(scans.map(async (item) => {
+      if (!item.meshUrl) return null;
+      const json = await readFingerprints(item.meshUrl);
+      if (!json) return null;
+      const parsed = JSON.parse(json) as FingerprintMap;
+      parsed.name = item.name;
+      parsed.scanId = item.id;
+      return parsed.frames?.length ? parsed : null;
+    })).then((loaded) => {
+      maps.current = loaded.filter((item): item is FingerprintMap => Boolean(item));
+    }).catch(() => undefined);
     return () => clearInterval(timer);
   }, []);
+
+  const placeMatch = async (found: Recognition, extraYaw = 0) => {
+    const scan = useLibrary.getState().scans.find((item) => item.id === found.scanId);
+    if (!scan?.meshUrl) return;
+    if (!placedMesh.current || placedMesh.current.id !== scan.id) {
+      const mesh = await loadDisplayMesh(scan.meshUrl);
+      const routes = useLibrary.getState().routes.filter((route) => route.rockScanId === scan.id);
+      placedMesh.current = { id: scan.id, mesh, routes };
+    }
+    const matrix = nudgeYaw(basePose.current ?? found.sessionFromScan, extraYaw);
+    showPlacedMesh(placedMesh.current.mesh, placedMesh.current.routes, matrix);
+    setMatch({ ...found, sessionFromScan: matrix });
+  };
+
+  const look = async () => {
+    const photos = getScanPhotos();
+    const photo = photos[photos.length - 1];
+    const pose = photo ? cameraMatrix(photo) : null;
+    if (!photo || !pose || maps.current.length === 0) return;
+    const features = await describeJpeg(photo.jpegBase64);
+    const found = recognizeFrame(features, { fx: photo.fx, fy: photo.fy, cx: photo.cx, cy: photo.cy }, pose, maps.current);
+    if (!found) return;
+    twist.current = 0;
+    basePose.current = found.sessionFromScan;
+    await placeMatch(found, 0);
+  };
+
+  const lookRef = useRef(look);
+  useEffect(() => {
+    lookRef.current = look;
+  });
+  useEffect(() => {
+    if (!ar) return;
+    const timer = setInterval(() => { void lookRef.current(); }, 2800);
+    return () => clearInterval(timer);
+  }, [ar]);
 
   const saveReal = async () => {
     const choice = chooseMeshPoints(groupedSamples());
@@ -37,7 +102,7 @@ export default function ScanScreen() {
       setSaving(true);
       await new Promise((resolve) => setTimeout(resolve, 40));
       try {
-        const mesh = reconstructSurface(choice.points, { voxelSize: 0.022 });
+        const mesh = reconstructSurface(choice.points, { voxelSize: 0.018, maxAxis: 96 });
         if (!mesh) {
           Alert.alert("No surface", "Those samples did not connect into a face. Cover more of the rock.");
           return;
@@ -48,13 +113,28 @@ export default function ScanScreen() {
           capture.worldVertices ? `Live mesh ${capture.worldVertices} vertices.` : "",
           getScanPhotos().length ? `${getScanPhotos().length} camera photos.` : "",
         ].filter(Boolean).join(" ");
+        const photos = getScanPhotos();
+        const origin = getScanOrigin();
+        if (extendId && match) {
+          const scan = useLibrary.getState().scans.find((item) => item.id === extendId);
+          if (!scan) throw new Error("The saved rock is no longer on this phone");
+          await extendMeshScan({
+            scan,
+            points: choice.points,
+            origin,
+            sessionFromScan: match.sessionFromScan,
+            photos,
+          });
+          router.replace(`/rock/${scan.id}`);
+          return;
+        }
         const id = await saveMeshScan({
           name: name.trim() || "Rock face",
           description,
           mesh,
           quality: choice.quality,
-          photos: getScanPhotos(),
-          origin: getScanOrigin(),
+          photos,
+          origin,
         });
         router.replace(`/rock/${id}`);
       } catch (error) {
@@ -119,6 +199,19 @@ export default function ScanScreen() {
         </View>
         <View style={styles.bottom} pointerEvents="box-none">
           {ar ? <Text style={styles.coaching}>{capture.coaching}</Text> : null}
+          {match ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {match.confidence === "high" ? "Recognized" : "Maybe"} {match.name}. {match.inliers} marks agree. No signal needed.
+              </Text>
+              <View style={styles.row}>
+                <Pressable onPress={() => { twist.current -= 0.12; void placeMatch(match, twist.current); }}><Text style={styles.backText}>Twist left</Text></Pressable>
+                <Pressable onPress={() => { twist.current += 0.12; void placeMatch(match, twist.current); }}><Text style={styles.backText}>Twist right</Text></Pressable>
+                <Pressable onPress={() => { setExtendId(match.scanId); setShowName(true); }}><Text style={styles.backText}>Add to this rock</Text></Pressable>
+                <Pressable onPress={() => { setMatch(null); setExtendId(null); clearPlacedMesh(); }}><Text style={styles.backText}>Not this rock</Text></Pressable>
+              </View>
+            </View>
+          ) : null}
           {showName || !ar ? (
             <TextInput
               value={name}
@@ -130,7 +223,7 @@ export default function ScanScreen() {
           ) : null}
           {ar ? (
             <BigButton
-              label={saving ? "Building the model…" : showName ? "Save this face" : "Save the scan"}
+              label={saving ? "Building the model…" : extendId ? "Save onto the recognized rock" : showName ? "Save this face" : "Save the scan"}
               disabled={saving}
               onPress={() => {
                 if (!showName) {
@@ -170,6 +263,7 @@ const styles = StyleSheet.create({
   backText: { color: colors.sand, fontWeight: "800", fontSize: 16 },
   badge: { alignSelf: "flex-start", backgroundColor: "rgba(18,20,16,0.78)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
   badgeText: { color: colors.chalk, fontWeight: "700" },
+  row: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 },
   bottom: { padding: space.md, gap: 10 },
   coaching: {
     color: colors.chalk,

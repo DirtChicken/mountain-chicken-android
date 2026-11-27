@@ -3,13 +3,13 @@
     "name": "Mountain Chicken",
     "slug": "mountain-chicken",
     "owner": "dirtchickens-team",
-    "version": "2.0.2",
+    "version": "2.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mountainchicken",
     "userInterfaceStyle": "dark",
     "ios": {
-      "buildNumber": "3",
+      "buildNumber": "4",
       "supportsTablet": true,
       "bundleIdentifier": "com.dirtchicken.mountainchicken",
       "infoPlist": {
@@ -18,7 +18,7 @@
       }
     },
     "android": {
-      "versionCode": 3,
+      "versionCode": 4,
       "package": "com.dirtchicken.mountainchicken",
       "adaptiveIcon": {
         "backgroundColor": "#121410",
@@ -62,7 +62,8 @@
             "savePhotosPermission": "Mountain Chicken does not save photos."
           }
         }
-      ]
+      ],
+      "./modules/rock-vision/app.plugin.js"
     ],
     "experiments": {
       "typedRoutes": false

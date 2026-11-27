@@ -33,6 +33,8 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 export function resetCapture(): void {
   map.clear();
   photos.length = 0;
+  lastPhotoAt = 0;
+  lastPhotoPlace = null;
   origin = null;
   tracking = "starting";
   source = "waiting";
@@ -49,7 +51,7 @@ export function noteCameraOrigin(position: Vector3): void {
 
 export function noteSample(world: Vector3, kind: SampleKind): void {
   const local = origin ? sub(world, origin) : world;
-  accumulateSample(map, local, kind, 0.02);
+  accumulateSample(map, local, kind, 0.015);
   schedule();
 }
 
@@ -84,16 +86,50 @@ export function getScanPhotos(): ScanPhoto[] {
   return photos.slice();
 }
 
+let lastPhotoAt = 0;
+let lastPhotoPlace: Vector3 | null = null;
+
 export function addScanPhoto(photo: ScanPhoto): void {
+  const now = Date.now();
   const place = photoPosition(photo);
+  if (place && lastPhotoPlace && lastPhotoAt > 0) {
+    const speed = dist(place, lastPhotoPlace) / Math.max(0.25, (now - lastPhotoAt) / 1000);
+    lastPhotoAt = now;
+    lastPhotoPlace = place;
+    if (speed > 0.85) return;
+  } else {
+    lastPhotoAt = now;
+    lastPhotoPlace = place;
+  }
   if (place && photos.some((existing) => {
     const other = photoPosition(existing);
-    return other ? dist(place, other) < 0.28 : false;
+    return other ? dist(place, other) < 0.22 : false;
   })) {
     return;
   }
   photos.push(photo);
-  if (photos.length > 8) photos.shift();
+  if (photos.length > 12) dropMostRedundant();
+}
+
+function dropMostRedundant(): void {
+  let worst = 0;
+  let worstGap = Infinity;
+  for (let i = 0; i < photos.length; i++) {
+    const place = photoPosition(photos[i]);
+    if (!place) continue;
+    let nearest = Infinity;
+    for (let j = 0; j < photos.length; j++) {
+      if (i === j) continue;
+      const other = photoPosition(photos[j]);
+      if (!other) continue;
+      nearest = Math.min(nearest, dist(place, other));
+    }
+    if (nearest < worstGap) {
+      worstGap = nearest;
+      worst = i;
+    }
+  }
+  photos.splice(worst, 1);
 }
 
 function photoPosition(photo: ScanPhoto): Vector3 | null {

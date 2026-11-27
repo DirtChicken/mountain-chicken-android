@@ -167,7 +167,8 @@ export function decimateMesh(mesh: SurfaceMesh, maxTriangles: number): SurfaceMe
   const triangles = Math.floor(mesh.indices.length / 3);
   const safeCap = Math.max(1, maxTriangles);
   if (triangles <= safeCap) return compactReferencedVertices(mesh);
-  return compactReferencedVertices({ ...mesh, indices: spatialTriangles(mesh, safeCap) });
+  const compact = compactReferencedVertices({ ...mesh, indices: spatialTriangles(mesh, safeCap) });
+  return { ...compact, normals: computeNormals(compact.positions, compact.indices) };
 }
 
 /** Keep triangles spread across the face so a hold is not deleted just because of triangle order. */
@@ -197,6 +198,7 @@ function spatialTriangles(mesh: SurfaceMesh, maxTriangles: number): Uint32Array 
   let low = span / 512;
   let high = span;
   let chosen: number[] = [];
+  const spatialCap = Math.max(1, Math.floor(maxTriangles * 0.7));
   for (let attempt = 0; attempt < 16; attempt++) {
     const voxel = (low + high) / 2;
     const cells = new Map<string, number>();
@@ -204,11 +206,21 @@ function spatialTriangles(mesh: SurfaceMesh, maxTriangles: number): Uint32Array 
       const key = `${Math.floor(centroids[triangle * 3] / voxel)}|${Math.floor(centroids[triangle * 3 + 1] / voxel)}|${Math.floor(centroids[triangle * 3 + 2] / voxel)}`;
       if (!cells.has(key)) cells.set(key, triangle);
     }
-    if (cells.size > maxTriangles) low = voxel;
+    if (cells.size > spatialCap) low = voxel;
     else {
       high = voxel;
       chosen = [...cells.values()];
     }
+  }
+  const picked = new Set(chosen);
+  const ranked = Array.from({ length: triangles }, (_, triangle) => triangle)
+    .map((triangle) => ({ triangle, score: cornerScore(mesh, triangle) }))
+    .sort((a, b) => b.score - a.score);
+  for (const entry of ranked) {
+    if (chosen.length >= maxTriangles) break;
+    if (picked.has(entry.triangle)) continue;
+    picked.add(entry.triangle);
+    chosen.push(entry.triangle);
   }
   if (chosen.length === 0) {
     const step = Math.ceil(triangles / maxTriangles);
@@ -264,6 +276,16 @@ export function compactReferencedVertices(mesh: SurfaceMesh): SurfaceMesh {
     indices: indexArray,
     bounds: positions.length >= 3 ? meshBounds(positionArray) : { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
   };
+}
+
+function cornerScore(mesh: SurfaceMesh, triangle: number): number {
+  const normals = mesh.normals;
+  if (!normals || normals.length < mesh.positions.length) return 0;
+  const a = mesh.indices[triangle * 3] * 3;
+  const b = mesh.indices[triangle * 3 + 1] * 3;
+  const c = mesh.indices[triangle * 3 + 2] * 3;
+  return Math.hypot(normals[a] - normals[b], normals[a + 1] - normals[b + 1], normals[a + 2] - normals[b + 2])
+    + Math.hypot(normals[b] - normals[c], normals[b + 1] - normals[c + 1], normals[b + 2] - normals[c + 2]);
 }
 
 function bucketKey(point: Vector3, cell: number): string {
