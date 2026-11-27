@@ -2,12 +2,12 @@
   "expo": {
     "name": "Mountain Chicken",
     "slug": "mountain-chicken",
+    "owner": "dirtchickens-team",
     "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mountainchicken",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.dirtchicken.mountainchicken",
@@ -68,6 +68,9 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "5ff39e39-f45d-4303-994c-b5a442526a12"
       }
     }
   }
