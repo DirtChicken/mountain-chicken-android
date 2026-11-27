@@ -8,7 +8,7 @@ import {
   type ViroARHitTestResult,
 } from "@reactvision/react-viro";
 import { bestHit, hitPosition, sampleKind } from "./hits";
-import { noteCameraOrigin, noteSample, noteTracking, noteWorldMesh } from "../state/scanCapture";
+import { addScanPhoto, getCaptureSnapshot, noteCameraOrigin, noteSample, noteTracking, noteWorldMesh } from "../state/scanCapture";
 
 type SceneProps = {
   arSceneNavigator: {
@@ -18,6 +18,18 @@ type SceneProps = {
       triangleCount?: number;
       source?: string;
       accumulated?: boolean;
+    }>;
+    captureVPSQueryFrame?: (maxSide?: number) => Promise<{
+      success: boolean;
+      image?: string;
+      width?: number;
+      height?: number;
+      fx?: number;
+      fy?: number;
+      cx?: number;
+      cy?: number;
+      worldFromCamera?: number[];
+      error?: string;
     }>;
   };
 };
@@ -38,11 +50,15 @@ function ScanScene(props?: SceneProps) {
     const gridTimer = setInterval(() => {
       void sampleGrid(sceneRef.current);
     }, 500);
+    const photoTimer = setInterval(() => {
+      void capturePhoto(sceneRef.current, navigator);
+    }, 1400);
 
     return () => {
       alive = false;
       clearInterval(statsTimer);
       clearInterval(gridTimer);
+      clearInterval(photoTimer);
     };
   }, [navigator]);
 
@@ -60,6 +76,41 @@ function ScanScene(props?: SceneProps) {
       }}
     />
   );
+}
+
+async function capturePhoto(
+  scene: ViroARScene | null,
+  navigator: SceneProps["arSceneNavigator"] | undefined,
+): Promise<void> {
+  if (!navigator?.captureVPSQueryFrame || getCaptureSnapshot().tracking !== "locked") return;
+  try {
+    const frame = await navigator.captureVPSQueryFrame(480);
+    if (!frame.success || !frame.image || !frame.width || !frame.height || !frame.fx || !frame.fy) return;
+    let position;
+    let forward;
+    let up;
+    const pose = await scene?.getCameraOrientationAsync();
+    if (pose) {
+      position = { x: pose.position[0], y: pose.position[1], z: pose.position[2] };
+      forward = { x: pose.forward[0], y: pose.forward[1], z: pose.forward[2] };
+      up = { x: pose.up[0], y: pose.up[1], z: pose.up[2] };
+    }
+    addScanPhoto({
+      width: frame.width,
+      height: frame.height,
+      fx: frame.fx,
+      fy: frame.fy,
+      cx: frame.cx ?? frame.width / 2,
+      cy: frame.cy ?? frame.height / 2,
+      worldFromCamera: frame.worldFromCamera,
+      position,
+      forward,
+      up,
+      jpegBase64: frame.image,
+    });
+  } catch {
+    // A missed photo does not stop the scan.
+  }
 }
 
 async function sampleGrid(scene: ViroARScene | null): Promise<void> {
@@ -88,7 +139,7 @@ function trackingLabel(state: number): string {
 
 function coachingFor(state: number, reason: number): string {
   if (state === ViroTrackingStateConstants.TRACKING_NORMAL) {
-    return "Walk a slow half-circle. Keep the whole face in frame until the wire mesh covers it.";
+    return "Walk a slow half-circle. The camera is photographing the face while the mesh locks in.";
   }
   if (reason === ViroARTrackingReasonConstants.TRACKING_REASON_EXCESSIVE_MOTION) {
     return "Slow down. Sidestep, don't swing the phone.";

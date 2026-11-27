@@ -167,13 +167,61 @@ export function decimateMesh(mesh: SurfaceMesh, maxTriangles: number): SurfaceMe
   const triangles = Math.floor(mesh.indices.length / 3);
   const safeCap = Math.max(1, maxTriangles);
   if (triangles <= safeCap) return compactReferencedVertices(mesh);
-  const step = Math.ceil(triangles / safeCap);
-  const kept: number[] = [];
-  for (let triangle = 0; triangle < triangles; triangle += step) {
-    const index = triangle * 3;
-    kept.push(mesh.indices[index], mesh.indices[index + 1], mesh.indices[index + 2]);
+  return compactReferencedVertices({ ...mesh, indices: spatialTriangles(mesh, safeCap) });
+}
+
+/** Keep triangles spread across the face so a hold is not deleted just because of triangle order. */
+function spatialTriangles(mesh: SurfaceMesh, maxTriangles: number): Uint32Array {
+  const triangles = Math.floor(mesh.indices.length / 3);
+  const centroids = new Float32Array(triangles * 3);
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (let triangle = 0; triangle < triangles; triangle++) {
+    const a = mesh.indices[triangle * 3] * 3;
+    const b = mesh.indices[triangle * 3 + 1] * 3;
+    const c = mesh.indices[triangle * 3 + 2] * 3;
+    const x = (mesh.positions[a] + mesh.positions[b] + mesh.positions[c]) / 3;
+    const y = (mesh.positions[a + 1] + mesh.positions[b + 1] + mesh.positions[c + 1]) / 3;
+    const z = (mesh.positions[a + 2] + mesh.positions[b + 2] + mesh.positions[c + 2]) / 3;
+    centroids[triangle * 3] = x;
+    centroids[triangle * 3 + 1] = y;
+    centroids[triangle * 3 + 2] = z;
+    min[0] = Math.min(min[0], x);
+    min[1] = Math.min(min[1], y);
+    min[2] = Math.min(min[2], z);
+    max[0] = Math.max(max[0], x);
+    max[1] = Math.max(max[1], y);
+    max[2] = Math.max(max[2], z);
   }
-  return compactReferencedVertices({ ...mesh, indices: Uint32Array.from(kept) });
+  const span = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2], 1e-3);
+  let low = span / 512;
+  let high = span;
+  let chosen: number[] = [];
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const voxel = (low + high) / 2;
+    const cells = new Map<string, number>();
+    for (let triangle = 0; triangle < triangles; triangle++) {
+      const key = `${Math.floor(centroids[triangle * 3] / voxel)}|${Math.floor(centroids[triangle * 3 + 1] / voxel)}|${Math.floor(centroids[triangle * 3 + 2] / voxel)}`;
+      if (!cells.has(key)) cells.set(key, triangle);
+    }
+    if (cells.size > maxTriangles) low = voxel;
+    else {
+      high = voxel;
+      chosen = [...cells.values()];
+    }
+  }
+  if (chosen.length === 0) {
+    const step = Math.ceil(triangles / maxTriangles);
+    chosen = [];
+    for (let triangle = 0; triangle < triangles; triangle += step) chosen.push(triangle);
+  }
+  const indices = new Uint32Array(chosen.length * 3);
+  chosen.forEach((triangle, index) => {
+    indices[index * 3] = mesh.indices[triangle * 3];
+    indices[index * 3 + 1] = mesh.indices[triangle * 3 + 1];
+    indices[index * 3 + 2] = mesh.indices[triangle * 3 + 2];
+  });
+  return indices;
 }
 
 /** Drop vertices no remaining triangle uses, so indices stay dense and inside 16-bit GL. */

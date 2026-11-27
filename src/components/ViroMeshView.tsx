@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { PanResponder, StyleSheet, Text, View } from "react-native";
 import {
+  Viro3DObject,
   Viro3DSceneNavigator,
   ViroAmbientLight,
   ViroDirectionalLight,
@@ -35,6 +36,8 @@ type Props = {
   draft?: RoutePoint[];
   onPick?: (point: Vector3) => void;
   hint?: string;
+  objUri?: string | null;
+  textureUri?: string | null;
 };
 
 const camera = {
@@ -47,6 +50,8 @@ const camera = {
   target: { x: 0, y: 1, z: 0 } as Vector3,
   revision: 0,
   onPick: undefined as ((point: Vector3) => void) | undefined,
+  objUri: null as string | null,
+  textureUri: null as string | null,
   width: 1,
   height: 1,
   moved: false,
@@ -128,7 +133,14 @@ function RockScene() {
         focalPoint={[camera.target.x, camera.target.y, camera.target.z]}
         fieldOfView={48}
       />
-      {placed.vertices.length > 0 ? (
+      {camera.textureUri && camera.objUri ? (
+        <Viro3DObject
+          source={{ uri: camera.objUri }}
+          resources={[{ uri: camera.textureUri.replace(/mesh\.jpg$/, "mesh.mtl") }, { uri: camera.textureUri }]}
+          type="OBJ"
+          materials={["mcPhoto"]}
+        />
+      ) : placed.vertices.length > 0 ? (
         <ViroGeometry
           key={`rock-${camera.revision}`}
           vertices={placed.vertices}
@@ -166,7 +178,7 @@ function RouteLine({ points }: { points: RoutePoint[] }) {
   );
 }
 
-export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint }: Props) {
+export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objUri = null, textureUri = null }: Props) {
   const [, bump] = useState(0);
   // The Viro scene function is captured once and reads this object while the view mounts.
   /* eslint-disable react-hooks/immutability, react-hooks/globals */
@@ -175,6 +187,8 @@ export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint }: Pr
   camera.routes = routes;
   camera.draft = draft;
   camera.onPick = onPick;
+  camera.objUri = objUri;
+  camera.textureUri = textureUri;
   camera.target = finiteTarget(mesh);
   if (camera.distance < 0.2) {
     const span = diagonal(mesh.bounds);
@@ -183,10 +197,21 @@ export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint }: Pr
   /* eslint-enable react-hooks/immutability */
 
   useEffect(() => {
-    noteScreen("plot: 3d view mounted");
+    if (!textureUri) return;
+    ViroMaterials.createMaterials({
+      mcPhoto: {
+        lightingModel: "Lambert",
+        diffuseTexture: { uri: textureUri },
+        cullMode: "None",
+      },
+    });
+  }, [textureUri]);
+
+  useEffect(() => {
+    noteScreen("plot: 3d view mounted", textureUri ? "photo" : "plain");
     const timer = setTimeout(() => noteScreen("plot: 3d view alive"), 800);
     return () => clearTimeout(timer);
-  }, []);
+  }, [textureUri]);
 
   return (
     <View

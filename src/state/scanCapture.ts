@@ -1,5 +1,6 @@
-import { sub } from "../domain/vec";
+import { dist, sub } from "../domain/vec";
 import type { Vector3 } from "../domain/types";
+import type { ScanPhoto } from "../mesh/photo";
 import { accumulateSample, pointsFromMap } from "../mesh/samples";
 import type { Accum, SampleKind } from "../mesh/types";
 
@@ -17,6 +18,7 @@ export type CaptureSnapshot = {
 };
 
 const map = new Map<string, Accum>();
+const photos: ScanPhoto[] = [];
 let origin: Vector3 | null = null;
 let tracking = "starting";
 let source = "waiting";
@@ -30,6 +32,7 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 
 export function resetCapture(): void {
   map.clear();
+  photos.length = 0;
   origin = null;
   tracking = "starting";
   source = "waiting";
@@ -71,6 +74,33 @@ export function noteWorldMesh(stats: {
 
 export function groupedSamples() {
   return pointsFromMap(map);
+}
+
+export function getScanOrigin(): Vector3 {
+  return origin ? { ...origin } : { x: 0, y: 0, z: 0 };
+}
+
+export function getScanPhotos(): ScanPhoto[] {
+  return photos.slice();
+}
+
+export function addScanPhoto(photo: ScanPhoto): void {
+  const place = photoPosition(photo);
+  if (place && photos.some((existing) => {
+    const other = photoPosition(existing);
+    return other ? dist(place, other) < 0.28 : false;
+  })) {
+    return;
+  }
+  photos.push(photo);
+  if (photos.length > 8) photos.shift();
+}
+
+function photoPosition(photo: ScanPhoto): Vector3 | null {
+  if (photo.worldFromCamera && photo.worldFromCamera.length === 16) {
+    return { x: photo.worldFromCamera[12], y: photo.worldFromCamera[13], z: photo.worldFromCamera[14] };
+  }
+  return photo.position ?? null;
 }
 
 export function subscribeCapture(listener: () => void): () => void {

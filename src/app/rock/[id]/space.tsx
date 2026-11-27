@@ -7,7 +7,7 @@ import { ArSpaceView } from "../../../ar/ArSpaceView";
 import { ViewerBoundary } from "../../../components/ViewerBoundary";
 import { isArAvailable } from "../../../ar/availability";
 import type { SurfaceMesh } from "../../../mesh/types";
-import { loadDisplayMesh } from "../../../storage/meshFiles";
+import { faceTextureUri, loadDisplayMesh } from "../../../storage/meshFiles";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
@@ -23,14 +23,17 @@ export default function SpaceScreen() {
     [allRoutes, scanId],
   );
   const [mesh, setMesh] = useState<SurfaceMesh | null>(null);
+  const [textureUri, setTextureUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!scan?.meshUrl) return;
     let cancelled = false;
     void loadDisplayMesh(scan.meshUrl)
-      .then((loaded) => {
+      .then(async (loaded) => {
         if (!cancelled) setMesh(loaded);
+        const photo = scan.meshUrl ? await faceTextureUri(scan.meshUrl) : null;
+        if (!cancelled) setTextureUri(photo);
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not open the model");
@@ -46,7 +49,7 @@ export default function SpaceScreen() {
       {!error && !mesh ? <Text style={styles.missing}>Opening the model…</Text> : null}
       {mesh ? (
         <ViewerBoundary>
-          <ArSpaceView mesh={mesh} routes={routes} />
+          <ArSpaceView mesh={mesh} routes={routes} objUri={scan?.meshUrl ?? null} textureUri={textureUri} />
         </ViewerBoundary>
       ) : null}
       <SafeAreaView style={styles.top} pointerEvents="box-none">

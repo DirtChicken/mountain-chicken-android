@@ -8,7 +8,7 @@ import { BigButton } from "../components/ui";
 import { practiceBoulder } from "../mesh/practiceBoulder";
 import { reconstructSurface } from "../mesh/reconstruct";
 import { chooseMeshPoints } from "../mesh/samples";
-import { getCaptureSnapshot, groupedSamples, resetCapture, type CaptureSnapshot } from "../state/scanCapture";
+import { getCaptureSnapshot, getScanOrigin, getScanPhotos, groupedSamples, resetCapture, type CaptureSnapshot } from "../state/scanCapture";
 import { noteScreen } from "../device/diagnostics";
 import { saveMeshScan } from "../state/saveMesh";
 import { colors, space } from "../theme/theme";
@@ -37,7 +37,7 @@ export default function ScanScreen() {
       setSaving(true);
       await new Promise((resolve) => setTimeout(resolve, 40));
       try {
-        const mesh = reconstructSurface(choice.points);
+        const mesh = reconstructSurface(choice.points, { voxelSize: 0.022 });
         if (!mesh) {
           Alert.alert("No surface", "Those samples did not connect into a face. Cover more of the rock.");
           return;
@@ -46,12 +46,15 @@ export default function ScanScreen() {
           choice.warning,
           `Camera mesh source: ${capture.source}.`,
           capture.worldVertices ? `Live mesh ${capture.worldVertices} vertices.` : "",
+          getScanPhotos().length ? `${getScanPhotos().length} camera photos.` : "",
         ].filter(Boolean).join(" ");
         const id = await saveMeshScan({
           name: name.trim() || "Rock face",
           description,
           mesh,
           quality: choice.quality,
+          photos: getScanPhotos(),
+          origin: getScanOrigin(),
         });
         router.replace(`/rock/${id}`);
       } catch (error) {

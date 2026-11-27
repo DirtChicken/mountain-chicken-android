@@ -3,13 +3,13 @@
     "name": "Mountain Chicken",
     "slug": "mountain-chicken",
     "owner": "dirtchickens-team",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mountainchicken",
     "userInterfaceStyle": "dark",
     "ios": {
-      "buildNumber": "2",
+      "buildNumber": "3",
       "supportsTablet": true,
       "bundleIdentifier": "com.dirtchicken.mountainchicken",
       "infoPlist": {
@@ -18,7 +18,7 @@
       }
     },
     "android": {
-      "versionCode": 2,
+      "versionCode": 3,
       "package": "com.dirtchicken.mountainchicken",
       "adaptiveIcon": {
         "backgroundColor": "#121410",

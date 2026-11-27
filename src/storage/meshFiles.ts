@@ -61,6 +61,32 @@ export async function loadDisplayMesh(meshUrl: string): Promise<SurfaceMesh> {
   }
 }
 
+export async function writeFaceFiles(objUri: string, objText: string, mtl: string, jpeg: Uint8Array): Promise<void> {
+  if (objUri.startsWith(WEB_PREFIX)) return;
+  const { File } = await import("expo-file-system");
+  const obj = new File(objUri);
+  await obj.write(objText);
+  const folder = obj.parentDirectory;
+  const mtlFile = new File(folder, "mesh.mtl");
+  const jpgFile = new File(folder, "mesh.jpg");
+  if (!mtlFile.exists) mtlFile.create();
+  if (!jpgFile.exists) jpgFile.create();
+  await mtlFile.write(mtl);
+  await jpgFile.write(jpeg);
+}
+
+export async function faceTextureUri(meshUrl: string): Promise<string | null> {
+  if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return null;
+  try {
+    const { File } = await import("expo-file-system");
+    const jpg = new File(new File(meshUrl).parentDirectory, "mesh.jpg");
+    return jpg.exists ? jpg.uri : null;
+  } catch (error) {
+    logError("texture lookup", error, { scheme: uriScheme(meshUrl) });
+    return null;
+  }
+}
+
 function uriScheme(meshUrl: string): string {
   const match = /^([a-z][a-z0-9+.-]*):/i.exec(meshUrl);
   return match ? match[1] : "path";

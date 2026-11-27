@@ -4,7 +4,17 @@ import type { SurfaceMesh } from "../mesh/types";
 import { colors, space } from "../theme/theme";
 import { isArAvailable } from "./availability";
 
-export function ArSpaceView({ mesh, routes }: { mesh: SurfaceMesh; routes: Route[] }) {
+export function ArSpaceView({
+  mesh,
+  routes,
+  objUri = null,
+  textureUri = null,
+}: {
+  mesh: SurfaceMesh;
+  routes: Route[];
+  objUri?: string | null;
+  textureUri?: string | null;
+}) {
   if (!isArAvailable()) {
     return (
       <View style={styles.fallback}>
@@ -17,7 +27,7 @@ export function ArSpaceView({ mesh, routes }: { mesh: SurfaceMesh; routes: Route
   // Loaded only when the native AR view exists, so Expo Go and web never evaluate Viro.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const native = require("./NativeArSpace") as typeof import("./NativeArSpace");
-  return <native.NativeArSpace mesh={mesh} routes={routes} />;
+  return <native.NativeArSpace mesh={mesh} routes={routes} objUri={objUri} textureUri={textureUri} />;
 }
 
 const styles = StyleSheet.create({

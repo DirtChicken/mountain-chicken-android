@@ -9,7 +9,7 @@ import type { Route, RoutePoint, Vector3 } from "../../../domain/types";
 import { routeLengthMeters } from "../../../domain/route";
 import { highestIndex, vertexCount } from "../../../mesh/prepareMesh";
 import type { SurfaceMesh } from "../../../mesh/types";
-import { loadDisplayMesh } from "../../../storage/meshFiles";
+import { faceTextureUri, loadDisplayMesh } from "../../../storage/meshFiles";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
@@ -19,6 +19,8 @@ type DrawProps = {
   draft?: RoutePoint[];
   onPick?: (point: Vector3) => void;
   hint?: string;
+  objUri?: string | null;
+  textureUri?: string | null;
 };
 
 const GRADES = ["V0", "V2", "V3", "V4", "V5", "V6", "V8", "5.10a", "5.11a"];
@@ -41,6 +43,7 @@ export default function PlotScreen() {
   );
   const addRoute = useLibrary((state) => state.addRoute);
   const [mesh, setMesh] = useState<SurfaceMesh | null>(null);
+  const [textureUri, setTextureUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pointType, setPointType] = useState<RoutePoint["type"]>("hold");
   const [draft, setDraft] = useState<RoutePoint[]>([]);
@@ -71,10 +74,12 @@ export default function PlotScreen() {
     let cancelled = false;
     noteScreen("plot: reading model");
     void loadDisplayMesh(scan.meshUrl)
-      .then((loaded) => {
+      .then(async (loaded) => {
         if (cancelled) return;
         noteScreen("plot: model loaded", `${vertexCount(loaded)} vertices`);
         setMesh(loaded);
+        const photo = scan.meshUrl ? await faceTextureUri(scan.meshUrl) : null;
+        if (!cancelled) setTextureUri(photo);
       })
       .catch((loadError: unknown) => {
         noteError(loadError);
@@ -142,7 +147,9 @@ export default function PlotScreen() {
             routes={siblings}
             draft={draft}
             onPick={pick}
-            hint="One finger turns it. Pinch zooms. Tap the stone to drop the selected point."
+            objUri={scan.meshUrl}
+            textureUri={textureUri}
+            hint={textureUri ? "Photo of the face, in the scan's meters. One finger turns it. Pinch zooms. Tap to plot." : "No photo was saved with this scan, so the rock is plain stone. One finger turns it. Tap to plot."}
           />
         </ViewerBoundary>
       ) : (

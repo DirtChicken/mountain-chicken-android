@@ -4,6 +4,7 @@ import {
   ViroAmbientLight,
   ViroARScene,
   ViroARSceneNavigator,
+  Viro3DObject,
   ViroDirectionalLight,
   ViroGeometry,
   ViroMaterials,
@@ -41,6 +42,8 @@ type Live = {
   locked: boolean;
   revision: number;
   hitCenter: null | (() => Promise<Vector3 | null>);
+  objUri: string | null;
+  textureUri: string | null;
 };
 
 const live: Live = {
@@ -52,6 +55,8 @@ const live: Live = {
   locked: false,
   revision: 0,
   hitCenter: null,
+  objUri: null,
+  textureUri: null,
 };
 
 function SpaceScene() {
@@ -86,7 +91,17 @@ function SpaceScene() {
     <ViroARScene ref={sceneRef} anchorDetectionTypes={["PlanesHorizontal", "PlanesVertical"]}>
       <ViroAmbientLight color="#ffffff" intensity={500} />
       <ViroDirectionalLight color="#fff4e0" direction={[0.2, -1, -0.35]} intensity={900} />
-      {placed ? (
+      {live.textureUri && live.objUri ? (
+        <Viro3DObject
+          source={{ uri: live.objUri }}
+          resources={[{ uri: live.textureUri.replace(/mesh\.jpg$/, "mesh.mtl") }, { uri: live.textureUri }]}
+          type="OBJ"
+          position={[live.origin.x, live.origin.y, live.origin.z]}
+          rotation={[0, (live.yaw * 180) / Math.PI, 0]}
+          scale={[live.scale, live.scale, live.scale]}
+          materials={["mcPhoto"]}
+        />
+      ) : placed ? (
         <ViroGeometry
           key={`rock-${live.revision}`}
           vertices={placed.vertices}
@@ -134,13 +149,29 @@ function worldFrom(point: Vector3): Vector3 {
   return scanPointToWorld(point, live.origin, live.yaw, live.scale);
 }
 
-export function NativeArSpace({ mesh, routes }: { mesh: SurfaceMesh; routes: Route[] }) {
+export function NativeArSpace({
+  mesh,
+  routes,
+  objUri = null,
+  textureUri = null,
+}: {
+  mesh: SurfaceMesh;
+  routes: Route[];
+  objUri?: string | null;
+  textureUri?: string | null;
+}) {
   const [locked, setLocked] = useState(false);
   const [yawDeg, setYawDeg] = useState(0);
   const [scale, setScale] = useState(1);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("Stand at the base. Put the crosshair on the ground where the rock meets it, then lock.");
   const anchor = useRef(basePoint(mesh));
+  useEffect(() => {
+    if (!textureUri) return;
+    ViroMaterials.createMaterials({
+      mcPhoto: { lightingModel: "Lambert", diffuseTexture: { uri: textureUri }, cullMode: "None" },
+    });
+  }, [textureUri]);
 
   // Viro keeps the first scene function and reads this object during render.
   // Writing it here is what makes the mesh match the controls on that same frame.
@@ -150,6 +181,8 @@ export function NativeArSpace({ mesh, routes }: { mesh: SurfaceMesh; routes: Rou
   live.yaw = (yawDeg * Math.PI) / 180;
   live.scale = scale;
   live.locked = locked;
+  live.objUri = objUri;
+  live.textureUri = textureUri;
   /* eslint-enable react-hooks/immutability */
 
   const lock = async () => {
