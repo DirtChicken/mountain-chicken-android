@@ -58,7 +58,7 @@ object DepthSampler {
     return try {
       val field = session.javaClass.declaredFields.firstOrNull { it.type.name == "com.google.ar.core.Config" } ?: return "unknown"
       field.isAccessible = true
-      val config = field.get(session) ?: return "unknown"
+      val config = field.get(session) as? Any ?: return "unknown"
       config.javaClass.getMethod("getDepthMode").invoke(config).toString().lowercase()
     } catch (error: Exception) {
       "unknown"
@@ -69,28 +69,29 @@ object DepthSampler {
   private data class Acquired(val image: Any?, val error: String?)
 
   private fun readDepth(frame: Any): Read {
-    var raw: Any? = null
+    val raw = readImage(frame, "acquireRawDepthImage16Bits", "acquireRawDepthConfidenceImage", "arcore-raw")
+    if (raw.points.isNotEmpty()) return raw
+    val smooth = readImage(frame, "acquireDepthImage16Bits", null, "arcore-smooth")
+    if (smooth.points.isNotEmpty()) return smooth
+    return Read("none", emptyList(), smooth.error ?: raw.error)
+  }
+
+  /** Acquire, read, and close one depth image before the next image is requested. */
+  private fun readImage(frame: Any, method: String, confidenceMethod: String?, source: String): Read {
+    var image: Any? = null
     var confidence: Any? = null
-    var smooth: Any? = null
     return try {
-      val rawAcquired = acquire(frame, "acquireRawDepthImage16Bits")
-      raw = rawAcquired.image
-      if (raw != null) {
-        confidence = acquire(frame, "acquireRawDepthConfidenceImage").image
-        val points = unproject(frame, raw, confidence)
-        if (points.isNotEmpty()) return Read("arcore-raw", points, null)
-      }
-      val smoothAcquired = acquire(frame, "acquireDepthImage16Bits")
-      smooth = smoothAcquired.image
-      if (smooth == null) {
-        return Read("none", emptyList(), smoothAcquired.error ?: rawAcquired.error)
-      }
-      val points = unproject(frame, smooth, null)
-      Read(if (points.isEmpty()) "none" else "arcore-smooth", points, if (points.isEmpty()) smoothAcquired.error else null)
+      val acquired = acquire(frame, method)
+      image = acquired.image
+      if (image == null) return Read("none", emptyList(), acquired.error)
+      if (confidenceMethod != null) confidence = acquire(frame, confidenceMethod).image
+      val points = unproject(frame, image, confidence)
+      Read(if (points.isEmpty()) "none" else source, points, null)
+    } catch (error: Exception) {
+      Read("none", emptyList(), describe(error))
     } finally {
-      closeImage(raw)
+      closeImage(image)
       closeImage(confidence)
-      closeImage(smooth)
     }
   }
 
