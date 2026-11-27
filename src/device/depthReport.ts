@@ -6,6 +6,7 @@ export type DepthReport = {
   message: string;
   lastError: string | null;
   misses: number;
+  imageHz: number;
 };
 
 export type DepthFrame = {
@@ -17,6 +18,7 @@ export type DepthFrame = {
 
 const listeners = new Set<() => void>();
 const recent: number[] = [];
+const imageMarks: number[] = [];
 let report: DepthReport = emptyDepthReport();
 
 export function emptyDepthReport(): DepthReport {
@@ -28,6 +30,7 @@ export function emptyDepthReport(): DepthReport {
     message: "Depth has not been checked yet.",
     lastError: null,
     misses: 0,
+    imageHz: 0,
   };
 }
 
@@ -97,12 +100,16 @@ export function setDepthProbe(next: Partial<DepthReport>): void {
 }
 
 export function noteDepthFrame(frame: DepthFrame): void {
-  report = { ...applyDepthFrame(report, frame), samplesPerSec: recent.length };
+  const now = Date.now();
+  if (frame.gotPoints) imageMarks.push(now);
+  while (imageMarks.length > 0 && now - imageMarks[0] > 1000) imageMarks.shift();
+  report = { ...applyDepthFrame(report, frame), samplesPerSec: recent.length, imageHz: imageMarks.length };
   listeners.forEach((listener) => listener());
 }
 
 export function resetDepthReport(): void {
   recent.length = 0;
+  imageMarks.length = 0;
   report = emptyDepthReport();
   listeners.forEach((listener) => listener());
 }

@@ -67,7 +67,7 @@ function ScanScene(props?: SceneProps) {
     }, 1400);
     const depthTimer = setInterval(() => {
       void pullDepth();
-    }, 700);
+    }, 125);
 
     return () => {
       alive = false;
@@ -107,13 +107,18 @@ function ScanScene(props?: SceneProps) {
   );
 }
 
+let depthReading = false;
+
 async function pullDepth(): Promise<void> {
-  if (getCaptureSnapshot().paused) return;
+  if (depthReading || getCaptureSnapshot().paused) return;
+  depthReading = true;
   try {
     const points = await pullMeasuredDepth();
     for (const point of points) noteSample(point, "depth");
   } catch {
     // A missed depth frame does not stop the scan.
+  } finally {
+    depthReading = false;
   }
 }
 

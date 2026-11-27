@@ -1,4 +1,4 @@
-import { decode as decodeJpeg, encode as encodeJpeg } from "jpeg-js";
+import { decodeJpegBase64, encodeRgba } from "../codec/jpeg";
 import type { Vector3 } from "../domain/types";
 import { add, dot, normalize, sub } from "../domain/vec";
 import { invert, type Mat4 } from "../viewer/math";
@@ -83,9 +83,7 @@ export function samplePhoto(image: RgbaImage, x: number, y: number): [number, nu
 }
 
 export function decodeScanPhoto(photo: ScanPhoto): RgbaImage {
-  const bytes = base64ToBytes(photo.jpegBase64);
-  const decoded = decodeJpeg(bytes, { useTArray: true, formatAsRGBA: true, tolerantDecoding: true });
-  return { width: decoded.width, height: decoded.height, data: decoded.data };
+  return decodeJpegBase64(photo.jpegBase64);
 }
 
 export function colorVertices(
@@ -167,8 +165,7 @@ export function bakeFaceTexture(
   }
   if (colored < 32) return null;
   fillGaps(rgba, size);
-  const encoded = encodeJpeg({ data: rgba, width: size, height: size }, 82);
-  return { jpeg: encoded.data, uvs, coloredTexels: colored };
+  return { jpeg: encodeRgba(rgba, size, size, 82), uvs, coloredTexels: colored };
 }
 
 export function texturedObj(mesh: SurfaceMesh, uvs: Float32Array): { obj: string; mtl: string } {
@@ -434,13 +431,6 @@ function at(values: Float32Array, index: number): Vector3 {
 
 function uvAt(uvs: Float32Array, index: number): [number, number] {
   return [uvs[index * 2] || 0, uvs[index * 2 + 1] || 0];
-}
-
-function base64ToBytes(value: string): Uint8Array {
-  const binary = globalThis.atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 
 function n(value: number): string {

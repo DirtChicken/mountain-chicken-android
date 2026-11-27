@@ -4,6 +4,7 @@ import type { SurfaceMesh } from "../mesh/types";
 import { cameraMatrix, decodeScanPhoto, type ScanPhoto } from "../mesh/photo";
 import { raycastMesh } from "../viewer/raycast";
 import { type Mat4 } from "../viewer/math";
+import { fromBase64, toBase64 } from "../codec/base64";
 import { extractFeatures, matchFeatures, type Feature } from "./features";
 import { sessionFromScan, solvePnp, type Intrinsics } from "./pose";
 
@@ -113,18 +114,7 @@ export function fingerprintsFromPhotos(
   return { version: 1, scanId, name, frames };
 }
 
-export function toBase64(bytes: Uint8Array): string {
-  let text = "";
-  for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
-  return globalThis.btoa(text);
-}
-
-export function fromBase64(value: string): Uint8Array {
-  const binary = globalThis.atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
+export { fromBase64, toBase64 };
 
 function rayThroughPixel(photo: ScanPhoto, u: number, v: number, origin: Vector3) {
   const xn = (u - photo.cx) / photo.fx;

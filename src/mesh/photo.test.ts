@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { encode as encodeJpeg } from "jpeg-js";
+import { toBase64 } from "../codec/base64";
+import { encodeRgba } from "../codec/jpeg";
 import type { SurfaceMesh } from "./types";
 import { bakeFaceTexture, decodeScanPhoto, projectToPhoto, texturedObj, type ScanPhoto } from "./photo";
 
@@ -17,12 +18,7 @@ test("a point in front of the camera lands on the photo pixel", () => {
 
 test("a saved face photo is painted onto the model and written next to the OBJ", () => {
   const photo = identityPhoto();
-  const jpeg = encodeJpeg({
-    data: solid(photo.width, photo.height, [20, 140, 220]),
-    width: photo.width,
-    height: photo.height,
-  }, 90);
-  photo.jpegBase64 = bytesToBase64(jpeg.data);
+  photo.jpegBase64 = toBase64(encodeRgba(solid(photo.width, photo.height, [20, 140, 220]), photo.width, photo.height, 90));
   const image = decodeScanPhoto(photo);
   assert.ok(image.data[2] > 150);
   const mesh = frontQuad();
@@ -80,8 +76,3 @@ function solid(width: number, height: number, rgb: [number, number, number]): Ui
   return data;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let text = "";
-  for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
-  return globalThis.btoa(text);
-}

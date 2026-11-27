@@ -3,11 +3,10 @@ import { Image, ScrollView, StyleSheet, Text } from "react-native";
 import { BigButton } from "../components/ui";
 import { readDepthReport, subscribeDepthReport } from "../device/depthReport";
 import { readTextureReport, subscribeTextureReport } from "../device/textureReport";
-import { noteScreen, readTrace, setSafeViewer, subscribeTrace } from "../device/diagnostics";
+import { readTrace, setSafeViewer, subscribeTrace } from "../device/diagnostics";
 import { colors, space } from "../theme/theme";
 
 export default function DiagnosticsScreen() {
-  noteScreen("diagnostics");
   const trace = useSyncExternalStore(subscribeTrace, readTrace, readTrace);
   const depth = useSyncExternalStore(subscribeDepthReport, readDepthReport, readDepthReport);
   const texture = useSyncExternalStore(subscribeTextureReport, readTextureReport, readTextureReport);
@@ -21,13 +20,13 @@ export default function DiagnosticsScreen() {
       <Text style={styles.label}>Last screen</Text>
       <Text style={styles.value}>{trace.lastScreen || "none"}</Text>
       <Text style={styles.meta}>{trace.lastScreenAt}</Text>
-      <Text style={styles.label}>Last time the app closed</Text>
-      <Text style={styles.value}>{trace.lastClosedWhile ?? "No unclean exit recorded"}</Text>
+      <Text style={styles.label}>Previous session ended on</Text>
+      <Text style={styles.value}>{endedOn(trace.lastClosedWhile)}</Text>
       <Text style={styles.label}>Depth</Text>
       <Text style={styles.value}>{depth.mode} · {depth.source}</Text>
-      <Text style={styles.meta}>{depth.samplesPerSec} samples/sec · {depth.total} this scan</Text>
+      <Text style={styles.meta}>{depth.imageHz} image frames/sec · {depth.samplesPerSec} points/sec · {depth.total} points this scan</Text>
       <Text style={styles.bodyText}>{depth.message}</Text>
-      {depth.lastError ? <Text style={styles.meta}>Last depth error: {depth.lastError}</Text> : null}
+      {depth.lastError ? <Text style={styles.meta}>Depth image note: {depth.lastError}</Text> : null}
       <Text style={styles.label}>Face photo</Text>
       <Text style={styles.value}>{texture.keyframesCaptured} frames kept · {texture.keyframesUsed} used in the bake</Text>
       <Text style={styles.meta}>
@@ -60,6 +59,11 @@ export default function DiagnosticsScreen() {
       ))}
     </ScrollView>
   );
+}
+
+function endedOn(value: string | null): string {
+  if (!value || value === "diagnostics") return value ? "Diagnostics" : "No previous session";
+  return value;
 }
 
 const styles = StyleSheet.create({

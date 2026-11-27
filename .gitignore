@@ -40,3 +40,4 @@ yarn-error.*
 /ios
 /android
 modules/rock-vision/android/build/
+modules/rock-vision/android/.cxx/

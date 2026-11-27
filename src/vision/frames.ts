@@ -1,4 +1,5 @@
-import { decode as decodeJpeg } from "jpeg-js";
+import { fromBase64 } from "../codec/base64";
+import { decodeJpegBytes } from "../codec/jpeg";
 import { captureColorFrame, describeNative } from "rock-vision";
 import { extractFeatures, type Feature } from "../reloc/features";
 
@@ -23,20 +24,12 @@ export async function describeJpeg(jpegBase64: string): Promise<Feature[]> {
   } catch {
     // The JS detector is the fallback when the native module is not in this build.
   }
-  const bytes = base64ToBytes(jpegBase64);
-  const decoded = decodeJpeg(bytes, { useTArray: true, formatAsRGBA: true, tolerantDecoding: true });
+  const decoded = decodeJpegBytes(fromBase64(jpegBase64));
   return extractFeatures(decoded.data, decoded.width, decoded.height);
 }
 
 function decodeDescriptor(value: string): Uint8Array {
-  const bytes = base64ToBytes(value);
+  const bytes = fromBase64(value);
   return bytes.length === 32 ? bytes : bytes.slice(0, 32);
-}
-
-function base64ToBytes(value: string): Uint8Array {
-  const binary = globalThis.atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 

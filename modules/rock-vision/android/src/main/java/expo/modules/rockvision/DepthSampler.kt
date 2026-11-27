@@ -2,6 +2,7 @@ package expo.modules.rockvision
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.opengl.GLSurfaceView
 import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
@@ -9,13 +10,114 @@ import java.io.ByteArrayOutputStream
 import java.lang.reflect.InvocationTargetException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 object DepthSampler {
   private val gate = Any()
+  private val depthBusy = AtomicBoolean(false)
 
   fun captureColor(activity: Activity): Map<String, Any> = readFrame(activity, wantColor = true)
 
-  fun sample(activity: Activity): Map<String, Any> = readFrame(activity, wantColor = false)
+  fun sample(activity: Activity): Map<String, Any> {
+    val native = readOnCameraThread(activity)
+    if (native != null) return native
+    return readFrame(activity, wantColor = false)
+  }
+
+  /**
+   * Viro stores the ARCore session as a native pointer, so the Java Frame walk
+   * never sees a frame. Read the frame Viro just updated, on the GL thread.
+   */
+  private fun readOnCameraThread(activity: Activity): Map<String, Any>? {
+    val root = activity.window?.decorView ?: return null
+    val ar = findNamed(root, "com.viro.core.ViroViewARCore") ?: return null
+    val ref = rendererRef(ar)
+    if (ref == 0L) return null
+    val surface = ar.javaClass.methods.firstOrNull { it.name == "getSurfaceView" && it.parameterCount == 0 }?.invoke(ar) as? GLSurfaceView
+      ?: return skipped("The camera surface is not ready.")
+    if (!depthBusy.compareAndSet(false, true)) {
+      return skipped("NotYetAvailableException: a depth read is already running")
+    }
+    val latch = CountDownLatch(1)
+    var packed: FloatArray? = null
+    var failure: String? = null
+    try {
+      surface.queueEvent {
+        try {
+          packed = DepthNative.read(ref)
+        } catch (error: Throwable) {
+          failure = "${error.javaClass.simpleName}: ${error.message ?: "depth read failed"}"
+        } finally {
+          depthBusy.set(false)
+          latch.countDown()
+        }
+      }
+    } catch (error: Exception) {
+      depthBusy.set(false)
+      return skipped("${error.javaClass.simpleName}: ${error.message ?: "could not schedule the depth read"}")
+    }
+    if (!latch.await(180, TimeUnit.MILLISECONDS)) {
+      return skipped("NotYetAvailableException: the camera thread did not finish the depth read")
+    }
+    val error = failure
+    if (error != null) return skipped(error)
+    return pointsFrom(packed)
+  }
+
+  private fun rendererRef(view: View): Long {
+    val renderer = view.javaClass.methods.firstOrNull { it.name == "getRenderer" && it.parameterCount == 0 }?.invoke(view)
+      ?: return 0L
+    var type: Class<*>? = renderer.javaClass
+    while (type != null) {
+      val field = type.declaredFields.firstOrNull { it.name == "mNativeRef" }
+      if (field != null) {
+        field.isAccessible = true
+        return field.getLong(renderer)
+      }
+      type = type.superclass
+    }
+    return 0L
+  }
+
+  private fun pointsFrom(packed: FloatArray?): Map<String, Any> {
+    if (packed == null || packed.size < 3) return skipped("The depth read returned nothing.")
+    val status = packed[0].toInt()
+    val source = when (packed[1].toInt()) {
+      1 -> "arcore-raw"
+      2 -> "arcore-smooth"
+      else -> "none"
+    }
+    val count = packed[2].toInt()
+    if (status != 0 || count <= 0) return skipped(statusText(status))
+    val points = ArrayList<Map<String, Float>>(count)
+    var index = 3
+    while (index + 2 < packed.size && points.size < count) {
+      points.add(mapOf("x" to packed[index], "y" to packed[index + 1], "z" to packed[index + 2]))
+      index += 3
+    }
+    return mapOf(
+      "success" to true,
+      "skipped" to false,
+      "mode" to "automatic",
+      "source" to source,
+      "error" to "",
+      "message" to "Depth image is on ($source).",
+      "points" to points,
+    )
+  }
+
+  private fun statusText(status: Int): String = when (status) {
+    -12 -> "NotYetAvailableException: depth image is not ready for this frame"
+    -11 -> "ResourceExhaustedException: too many ARCore images are still open"
+    -100 -> "The ARCore session has not started"
+    -101 -> "The ARCore frame has not been updated yet"
+    -102 -> "NotYetAvailableException: this depth image had no points in range"
+    -103 -> "ARCore depth symbols are not loaded"
+    -104 -> "The camera intrinsics are not ready"
+    else -> "ArStatus $status"
+  }
 
   fun readFrame(activity: Activity, wantColor: Boolean): Map<String, Any> {
     synchronized(gate) {
@@ -58,8 +160,8 @@ object DepthSampler {
     return try {
       val field = session.javaClass.declaredFields.firstOrNull { it.type.name == "com.google.ar.core.Config" } ?: return "unknown"
       field.isAccessible = true
-      val config = field.get(session) as? Any ?: return "unknown"
-      config.javaClass.getMethod("getDepthMode").invoke(config).toString().lowercase()
+      val config = field.get(session) ?: return "unknown"
+      (config as Any).javaClass.getMethod("getDepthMode").invoke(config).toString().lowercase()
     } catch (error: Exception) {
       "unknown"
     }

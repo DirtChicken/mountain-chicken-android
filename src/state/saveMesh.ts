@@ -1,4 +1,4 @@
-import { encode as encodeJpeg } from "jpeg-js";
+import { encodeRgba } from "../codec/jpeg";
 import { Platform } from "react-native";
 import { buildRoute, buildScan } from "../domain/create";
 import type { RockScan, Route, RoutePoint, Vector3 } from "../domain/types";
@@ -218,7 +218,7 @@ function sandJpeg(): Uint8Array {
     data[i + 2] = 116;
     data[i + 3] = 255;
   }
-  return encodeJpeg({ data, width: 16, height: 16 }, 80).data;
+  return encodeRgba(data, 16, 16, 80);
 }
 
 function finiteBounds(mesh: SurfaceMesh): SurfaceMesh["bounds"] | undefined {
