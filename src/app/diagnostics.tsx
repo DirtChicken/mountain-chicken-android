@@ -1,12 +1,14 @@
 import { useSyncExternalStore } from "react";
 import { ScrollView, StyleSheet, Text } from "react-native";
 import { BigButton } from "../components/ui";
+import { readDepthReport, subscribeDepthReport } from "../device/depthReport";
 import { noteScreen, readTrace, setSafeViewer, subscribeTrace } from "../device/diagnostics";
 import { colors, space } from "../theme/theme";
 
 export default function DiagnosticsScreen() {
   noteScreen("diagnostics");
   const trace = useSyncExternalStore(subscribeTrace, readTrace, readTrace);
+  const depth = useSyncExternalStore(subscribeDepthReport, readDepthReport, readDepthReport);
   return (
     <ScrollView contentContainerStyle={styles.body}>
       <Text style={styles.title}>Diagnostics</Text>
@@ -18,6 +20,10 @@ export default function DiagnosticsScreen() {
       <Text style={styles.meta}>{trace.lastScreenAt}</Text>
       <Text style={styles.label}>Last time the app closed</Text>
       <Text style={styles.value}>{trace.lastClosedWhile ?? "No unclean exit recorded"}</Text>
+      <Text style={styles.label}>Depth</Text>
+      <Text style={styles.value}>{depth.mode} · {depth.source}</Text>
+      <Text style={styles.meta}>{depth.samplesPerSec} samples/sec · {depth.total} this scan</Text>
+      <Text style={styles.bodyText}>{depth.message}</Text>
       <Text style={styles.label}>Last error</Text>
       <Text style={styles.value}>{trace.lastError ?? "None"}</Text>
       {trace.lastErrorAt ? <Text style={styles.meta}>{trace.lastErrorAt}</Text> : null}

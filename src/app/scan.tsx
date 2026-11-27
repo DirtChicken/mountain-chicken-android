@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ArScanView } from "../ar/ArScanView";
@@ -21,6 +21,7 @@ import { useLibrary } from "../state/useLibrary";
 import type { Mat4 } from "../viewer/math";
 import type { SurfaceMesh } from "../mesh/types";
 import type { Route } from "../domain/types";
+import { readDepthReport, subscribeDepthReport } from "../device/depthReport";
 import { spillFusionCheckpoint } from "../storage/fusionCheckpoint";
 import type { CoverageCell } from "../mesh/coverage";
 import { colors, space } from "../theme/theme";
@@ -30,6 +31,7 @@ export default function ScanScreen() {
   const params = useLocalSearchParams<{ refine?: string }>();
   const refineParam = Array.isArray(params.refine) ? params.refine[0] : params.refine;
   const ar = isArAvailable();
+  const depth = useSyncExternalStore(subscribeDepthReport, readDepthReport, readDepthReport);
   const [capture, setCapture] = useState<CaptureSnapshot>(getCaptureSnapshot);
   const refineScan = useLibrary((state) => state.scans.find((item) => item.id === refineParam));
   const [customName, setCustomName] = useState<string | null>(null);
@@ -213,7 +215,7 @@ export default function ScanScreen() {
           {ar ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
-                {capture.paused ? "paused" : capture.tracking} · {capture.depthCount} depth · {capture.photoCount} photos · {capture.sampleCount} cells
+                {capture.paused ? "paused" : capture.tracking} · {capture.depthCount} depth · {depth.samplesPerSec}/s · {depth.mode} · {capture.photoCount} photos
               </Text>
               <CoverageMap cells={capture.coverage} />
             </View>
@@ -224,6 +226,7 @@ export default function ScanScreen() {
         </View>
         <View style={styles.bottom} pointerEvents="box-none">
           {ar ? <Text style={styles.coaching}>{capture.coaching}</Text> : null}
+          {ar && depth.mode !== "unknown" ? <Text style={styles.coaching}>{depth.message}</Text> : null}
           {match ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>

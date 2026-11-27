@@ -16,9 +16,20 @@ export type ColorFrame = {
 
 export type NativeFeature = { x: number; y: number; d: string };
 
+export type DepthPoint = { x: number; y: number; z: number };
+
+export type DepthSample = {
+  success: boolean;
+  mode: string;
+  source: string;
+  message: string;
+  points: DepthPoint[];
+};
+
 type NativeModule = {
   captureColor: () => Promise<ColorFrame>;
   describe: (jpegBase64: string) => Promise<{ points?: NativeFeature[]; sharpness?: number; error?: string }>;
+  sampleDepth: () => Promise<DepthSample>;
 };
 
 let native: NativeModule | null | undefined;
@@ -43,4 +54,18 @@ export function describeNative(jpegBase64: string) {
   const current = module();
   if (!current) return Promise.resolve({ points: [] as NativeFeature[], sharpness: 0 });
   return current.describe(jpegBase64);
+}
+
+export function sampleDepth(): Promise<DepthSample> {
+  const current = module();
+  if (!current?.sampleDepth) {
+    return Promise.resolve({
+      success: false,
+      mode: "unavailable",
+      source: "none",
+      message: "This install cannot read the depth image.",
+      points: [],
+    });
+  }
+  return current.sampleDepth();
 }

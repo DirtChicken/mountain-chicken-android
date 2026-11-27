@@ -1,3 +1,4 @@
+import { noteDepthSample, resetDepthReport } from "../device/depthReport";
 import { dist, length, sub } from "../domain/vec";
 import type { Vector3 } from "../domain/types";
 import { coverageAdvice, coverageGrid, type CoverageCell } from "../mesh/coverage";
@@ -55,6 +56,7 @@ export function resetCapture(): void {
   paused = false;
   voxel = FUSION_VOXEL;
   lastCamera = null;
+  resetDepthReport();
   publish();
 }
 
@@ -76,6 +78,7 @@ export function noteSample(world: Vector3, kind: SampleKind): void {
   if (paused) return;
   const local = origin ? sub(world, origin) : world;
   voxel = fuseSample(map, local, kind, voxel);
+  if (kind === "depth") noteDepthSample();
   schedule();
 }
 

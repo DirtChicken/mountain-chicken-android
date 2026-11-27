@@ -15,8 +15,11 @@ export function hitPosition(hit: HitLike): { x: number; y: number; z: number } {
   return { x, y, z };
 }
 
-export function sampleKind(type: string): "depth" | "feature" | "plane" {
-  if (type === "DepthPoint") return "depth";
+export function sampleKind(hit: { type: string; hasDepthData?: boolean; depthSource?: string } | string): "depth" | "feature" | "plane" {
+  const type = typeof hit === "string" ? hit : hit.type;
+  const source = typeof hit === "string" ? "" : hit.depthSource ?? "";
+  const measured = typeof hit === "string" ? false : Boolean(hit.hasDepthData);
+  if (type === "DepthPoint" || measured || (source !== "" && source !== "none")) return "depth";
   if (type === "FeaturePoint") return "feature";
   return "plane";
 }

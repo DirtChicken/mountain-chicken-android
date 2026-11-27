@@ -59,6 +59,28 @@ class RockVisionModule : Module() {
       }
     }
 
+    AsyncFunction("sampleDepth") Coroutine { ->
+      val activity = appContext.currentActivity
+        ?: return@Coroutine mapOf(
+          "success" to false,
+          "mode" to "unavailable",
+          "source" to "none",
+          "message" to "The camera is not open.",
+          "points" to emptyList<Map<String, Float>>(),
+        )
+      try {
+        DepthSampler.sample(activity)
+      } catch (error: Exception) {
+        mapOf(
+          "success" to false,
+          "mode" to "unavailable",
+          "source" to "none",
+          "message" to "Depth could not be read (${error.javaClass.simpleName}). Overlapping photos will measure the face.",
+          "points" to emptyList<Map<String, Float>>(),
+        )
+      }
+    }
+
     AsyncFunction("describe") Coroutine { jpegBase64: String ->
       withContext(Dispatchers.Default) {
         val bytes = Base64.decode(jpegBase64, Base64.DEFAULT)

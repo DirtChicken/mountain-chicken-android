@@ -14,6 +14,7 @@ import { bestHit, hitPosition, sampleKind } from "./hits";
 import { scanStage } from "./scanStage";
 import { addScanPhoto, getCaptureSnapshot, noteCameraOrigin, noteSample, noteTracking, noteWorldMesh } from "../state/scanCapture";
 import { captureDisplayColor } from "../vision/frames";
+import { pullMeasuredDepth } from "../vision/depth";
 
 ViroMaterials.createMaterials({
   mcSnap: { lightingModel: "Lambert", diffuseColor: "#C4A574", cullMode: "None" },
@@ -63,12 +64,16 @@ function ScanScene(props?: SceneProps) {
     const photoTimer = setInterval(() => {
       void capturePhoto(sceneRef.current, navigator);
     }, 1400);
+    const depthTimer = setInterval(() => {
+      void pullDepth();
+    }, 700);
 
     return () => {
       alive = false;
       clearInterval(statsTimer);
       clearInterval(gridTimer);
       clearInterval(photoTimer);
+      clearInterval(depthTimer);
     };
   }, [navigator]);
 
@@ -82,7 +87,7 @@ function ScanScene(props?: SceneProps) {
         noteCameraOrigin({ x, y, z });
         const hit = bestHit(event.hitTestResults as ViroARHitTestResult[]);
         if (!hit) return;
-        noteSample(hitPosition(hit), sampleKind(hit.type));
+        noteSample(hitPosition(hit), sampleKind(hit));
       }}
     >
       {scanStage.vertices && scanStage.normals && scanStage.triangles ? (
@@ -99,6 +104,16 @@ function ScanScene(props?: SceneProps) {
       ))}
     </ViroARScene>
   );
+}
+
+async function pullDepth(): Promise<void> {
+  if (getCaptureSnapshot().paused) return;
+  try {
+    const points = await pullMeasuredDepth();
+    for (const point of points) noteSample(point, "depth");
+  } catch {
+    // A missed depth frame does not stop the scan.
+  }
 }
 
 async function capturePhoto(
@@ -182,7 +197,7 @@ async function sampleGrid(scene: ViroARScene | null): Promise<void> {
       try {
         const hits = (await scene.performARHitTestWithPoint(width * x, height * y)) as ViroARHitTestResult[];
         const hit = bestHit(hits);
-        if (hit) noteSample(hitPosition(hit), sampleKind(hit.type));
+        if (hit) noteSample(hitPosition(hit), sampleKind(hit));
       } catch {
         return;
       }

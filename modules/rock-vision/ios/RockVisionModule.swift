@@ -28,11 +28,72 @@ public class RockVisionModule: Module {
       }
     }
 
+    AsyncFunction("sampleDepth") { () -> [String: Any] in
+      guard let frame = self.session?.currentFrame else {
+        return ["success": false, "mode": "unavailable", "source": "none", "message": "No AR frame yet.", "points": []]
+      }
+      return Self.readDepth(frame)
+    }
+
     AsyncFunction("describe") { (jpegBase64: String, promise: Promise) in
       DispatchQueue.global(qos: .userInitiated).async {
         promise.resolve(Self.describe(jpegBase64))
       }
     }
+  }
+
+  private static func readDepth(_ frame: ARFrame) -> [String: Any] {
+    let pixel = frame.sceneDepth?.depthMap ?? frame.estimatedDepthData?.depthMap
+    guard let pixel else {
+      return [
+        "success": true,
+        "mode": "unavailable",
+        "source": "none",
+        "message": "This phone has no depth image yet. Overlapping photos will measure the face.",
+        "points": [],
+      ]
+    }
+    CVPixelBufferLockBaseAddress(pixel, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(pixel, .readOnly) }
+    guard let base = CVPixelBufferGetBaseAddress(pixel) else {
+      return ["success": false, "mode": "unavailable", "source": "none", "message": "The depth image was empty.", "points": []]
+    }
+    let width = CVPixelBufferGetWidth(pixel)
+    let height = CVPixelBufferGetHeight(pixel)
+    let stride = CVPixelBufferGetBytesPerRow(pixel) / MemoryLayout<Float32>.size
+    let floats = base.assumingMemoryBound(to: Float32.self)
+    let imageWidth = Float(CVPixelBufferGetWidth(frame.capturedImage))
+    let imageHeight = Float(CVPixelBufferGetHeight(frame.capturedImage))
+    let intrinsics = frame.camera.intrinsics
+    let fx = intrinsics.columns.0.x * Float(width) / max(imageWidth, 1)
+    let fy = intrinsics.columns.1.y * Float(height) / max(imageHeight, 1)
+    let cx = intrinsics.columns.2.x * Float(width) / max(imageWidth, 1)
+    let cy = intrinsics.columns.2.y * Float(height) / max(imageHeight, 1)
+    let pose = frame.camera.transform
+    var points: [[String: Float]] = []
+    let step = 8
+    var y = step
+    while y < height - step && points.count < 240 {
+      var x = step
+      while x < width - step && points.count < 240 {
+        let meters = floats[y * stride + x]
+        if meters > 0.15 && meters < 6 {
+          let local = SIMD4<Float>((Float(x) - cx) * meters / fx, -((Float(y) - cy) * meters / fy), -meters, 1)
+          let world = pose * local
+          points.append(["x": world.x, "y": world.y, "z": world.z])
+        }
+        x += step
+      }
+      y += step
+    }
+    let mode = frame.sceneDepth == nil ? "monocular" : "lidar"
+    return [
+      "success": true,
+      "mode": mode,
+      "source": "arkit",
+      "message": points.isEmpty ? "Depth mode is \(mode), but this frame has no depth yet." : "Depth is on (\(mode)).",
+      "points": points,
+    ]
   }
 
   private static func colorPayload(_ frame: ARFrame) -> [String: Any] {
