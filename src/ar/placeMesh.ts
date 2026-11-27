@@ -1,6 +1,6 @@
 import { rotateY, scanPointToWorld } from "../domain/frame";
 import type { Vector3 } from "../domain/types";
-import { decimateMesh } from "../mesh/reconstruct";
+import { AR_LIMITS, prepareMeshForDisplay } from "../mesh/prepareMesh";
 import type { SurfaceMesh } from "../mesh/types";
 
 export type ViroMeshData = {
@@ -11,7 +11,7 @@ export type ViroMeshData = {
 
 /** Bake the scan into the current AR frame. The node itself stays at the origin. */
 export function placeMesh(mesh: SurfaceMesh, origin: Vector3, yaw: number, uniformScale: number): ViroMeshData {
-  const compact = decimateMesh(mesh, 4500);
+  const compact = prepareMeshForDisplay(mesh, AR_LIMITS);
   const vertices: [number, number, number][] = [];
   const normals: [number, number, number][] = [];
   for (let i = 0; i < compact.positions.length; i += 3) {

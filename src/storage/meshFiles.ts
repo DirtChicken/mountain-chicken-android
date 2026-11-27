@@ -1,8 +1,11 @@
 import { Platform } from "react-native";
-import type { SurfaceMesh } from "../mesh/types";
+import { logError, logInfo } from "../log";
 import { meshToObj, objToMesh } from "../mesh/obj";
+import { prepareMeshForDisplay } from "../mesh/prepareMesh";
+import type { SurfaceMesh } from "../mesh/types";
 
 const WEB_PREFIX = "webmesh:";
+const MAX_MESH_BYTES = 24 * 1024 * 1024;
 
 export async function writeMeshFile(scanId: string, mesh: SurfaceMesh): Promise<string> {
   const obj = meshToObj(mesh);
@@ -21,15 +24,46 @@ export async function writeMeshFile(scanId: string, mesh: SurfaceMesh): Promise<
 }
 
 export async function readMeshFile(meshUrl: string): Promise<SurfaceMesh> {
+  if (!meshUrl) throw new Error("This rock has no saved model.");
   if (meshUrl.startsWith(WEB_PREFIX)) {
     const obj = localStorage.getItem(meshUrl);
     if (!obj) throw new Error("The saved model is missing from this browser");
+    if (obj.length > MAX_MESH_BYTES) throw new Error("This scan file is too large to open on this phone.");
     return objToMesh(obj);
   }
   const { File } = await import("expo-file-system");
   const file = new File(meshUrl);
   if (!file.exists) throw new Error("The saved model file is missing");
+  const bytes = typeof file.size === "number" ? file.size : 0;
+  logInfo("reading scan file", { scheme: uriScheme(meshUrl), bytes });
+  if (bytes > MAX_MESH_BYTES) throw new Error("This scan file is too large to open on this phone.");
   return objToMesh(await file.text());
+}
+
+/** Read a saved scan off the UI thread and shrink it to something Android GL can draw. */
+export async function loadDisplayMesh(meshUrl: string): Promise<SurfaceMesh> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const started = Date.now();
+  try {
+    const raw = await readMeshFile(meshUrl);
+    const mesh = prepareMeshForDisplay(raw);
+    logInfo("opened scan mesh", {
+      scheme: uriScheme(meshUrl),
+      rawVertices: Math.floor(raw.positions.length / 3),
+      viewVertices: Math.floor(mesh.positions.length / 3),
+      triangles: Math.floor(mesh.indices.length / 3),
+      ms: Date.now() - started,
+    });
+    return mesh;
+  } catch (error) {
+    logError("open scan mesh", error, { scheme: uriScheme(meshUrl) });
+    throw error instanceof Error ? error : new Error("Could not open the model");
+  }
+}
+
+function uriScheme(meshUrl: string): string {
+  const match = /^([a-z][a-z0-9+.-]*):/i.exec(meshUrl);
+  return match ? match[1] : "path";
 }
 
 export async function deleteMeshFile(meshUrl: string | undefined): Promise<void> {

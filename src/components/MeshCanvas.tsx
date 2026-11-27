@@ -1,10 +1,13 @@
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PanResponder, StyleSheet, Text, View } from "react-native";
 import type { Route, RoutePoint, Vector3 } from "../domain/types";
 import { diagonal, midpoint } from "../domain/vec";
+import { logError } from "../log";
+import { highestIndex, prepareMeshForDisplay, vertexCount } from "../mesh/prepareMesh";
 import type { SurfaceMesh } from "../mesh/types";
 import { colors } from "../theme/theme";
+import { ViewerFallback } from "./ViewerBoundary";
 import { lookAt, multiply, orbitEye, perspective, rayFromScreen } from "../viewer/math";
 import { rockColors, routeOverlay, type ColoredMesh } from "../viewer/overlay";
 import { raycastMesh } from "../viewer/raycast";
@@ -73,6 +76,7 @@ const session = {
   lastY: 0,
   span: 0,
   stop: null as (() => void) | null,
+  onGlError: undefined as ((message: string) => void) | undefined,
 };
 
 const pan = PanResponder.create({
@@ -120,14 +124,26 @@ const pan = PanResponder.create({
 });
 
 export function MeshCanvas({ mesh, routes = EMPTY_ROUTES, draft = EMPTY_DRAFT, onPick, hint }: Props) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const safe = useMemo(() => safeMesh(mesh), [mesh]);
+
   useEffect(() => {
-    session.mesh = mesh;
-    session.target = midpoint(mesh.bounds.min, mesh.bounds.max);
-    session.distance = Math.max(0.6, diagonal(mesh.bounds) * 1.55);
+    session.onGlError = (message) => setProblem(message);
+    return () => {
+      session.onGlError = undefined;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!safe) return;
+    session.mesh = safe;
+    session.target = finiteTarget(safe);
+    const span = diagonal(safe.bounds);
+    session.distance = Number.isFinite(span) ? Math.max(0.6, span * 1.55) : 2.4;
     session.yaw = 0.75;
     session.pitch = 0.42;
     session.dirty = true;
-  }, [mesh]);
+  }, [safe]);
 
   useEffect(() => {
     session.routes = routes;
@@ -140,6 +156,11 @@ export function MeshCanvas({ mesh, routes = EMPTY_ROUTES, draft = EMPTY_DRAFT, o
   }, [onPick]);
 
   useEffect(() => () => session.stop?.(), []);
+
+  if (!safe) {
+    return <ViewerFallback message="This scan has no surface to draw. It is still saved." />;
+  }
+  if (problem) return <ViewerFallback message={problem} />;
 
   return (
     <View
@@ -158,7 +179,10 @@ export function MeshCanvas({ mesh, routes = EMPTY_ROUTES, draft = EMPTY_DRAFT, o
 
 function start(gl: ExpoWebGLRenderingContext) {
   const program = link(gl, VERT, FRAG);
-  if (!program) return;
+  if (!program) {
+    session.onGlError?.("The 3D view could not start. The scan is still saved.");
+    return;
+  }
   gl.useProgram(program);
   const loc = {
     position: gl.getAttribLocation(program, "aPosition"),
@@ -175,34 +199,44 @@ function start(gl: ExpoWebGLRenderingContext) {
   const loop = () => {
     if (!alive) return;
     raf = requestAnimationFrame(loop);
-    if (session.dirty && session.mesh) {
-      dispose(gl, rock);
-      dispose(gl, overlay);
-      const current = session.mesh;
-      rock = upload(gl, {
-        positions: current.positions,
-        normals: current.normals,
-        colors: rockColors(current.positions.length / 3),
-        indices: current.indices,
+    try {
+      if (session.dirty && session.mesh) {
+        dispose(gl, rock);
+        dispose(gl, overlay);
+        const current = session.mesh;
+        rock = upload(gl, {
+          positions: current.positions,
+          normals: current.normals,
+          colors: rockColors(current.positions.length / 3),
+          indices: current.indices,
+        });
+        overlay = upload(gl, routeOverlay(session.routes, session.draft));
+        session.dirty = false;
+      }
+      const frame = sizeOf(gl);
+      if (frame.width >= 2 && frame.height >= 2) {
+        gl.viewport(0, 0, frame.width, frame.height);
+        gl.enable(gl.DEPTH_TEST);
+        gl.disable(gl.CULL_FACE);
+        gl.clearColor(0.07, 0.078, 0.07, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        const eye = orbitEye(session.target, session.yaw, session.pitch, session.distance);
+        const modelView = lookAt(eye, session.target, { x: 0, y: 1, z: 0 });
+        const proj = perspective((48 * Math.PI) / 180, frame.aspect, 0.04, 200);
+        gl.uniformMatrix4fv(loc.mvp, false, Float32Array.from(multiply(proj, modelView)));
+        gl.uniformMatrix4fv(loc.modelView, false, Float32Array.from(modelView));
+        draw(gl, loc, rock);
+        draw(gl, loc, overlay);
+      }
+      gl.endFrameEXP();
+    } catch (error) {
+      alive = false;
+      logError("gl frame", error, {
+        vertices: session.mesh ? vertexCount(session.mesh) : 0,
+        highestIndex: session.mesh ? highestIndex(session.mesh) : 0,
       });
-      overlay = upload(gl, routeOverlay(session.routes, session.draft));
-      session.dirty = false;
+      session.onGlError?.("The 3D view stopped. The scan is still saved.");
     }
-    const frame = sizeOf(gl);
-    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-    gl.enable(gl.DEPTH_TEST);
-    gl.disable(gl.CULL_FACE);
-    gl.clearColor(0.07, 0.078, 0.07, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    const eye = orbitEye(session.target, session.yaw, session.pitch, session.distance);
-    const modelView = lookAt(eye, session.target, { x: 0, y: 1, z: 0 });
-    const proj = perspective((48 * Math.PI) / 180, frame.aspect, 0.04, 200);
-    const mvp = multiply(proj, modelView);
-    gl.uniformMatrix4fv(loc.mvp, false, Float32Array.from(mvp));
-    gl.uniformMatrix4fv(loc.modelView, false, Float32Array.from(modelView));
-    draw(gl, loc, rock);
-    draw(gl, loc, overlay);
-    gl.endFrameEXP();
   };
   loop();
   session.stop = () => {
@@ -213,10 +247,27 @@ function start(gl: ExpoWebGLRenderingContext) {
   };
 }
 
-function sizeOf(gl: ExpoWebGLRenderingContext): { aspect: number } {
+function sizeOf(gl: ExpoWebGLRenderingContext): { width: number; height: number; aspect: number } {
   const width = gl.drawingBufferWidth || 1;
   const height = gl.drawingBufferHeight || 1;
-  return { aspect: width / height };
+  return { width, height, aspect: width / Math.max(1, height) };
+}
+
+function safeMesh(mesh: SurfaceMesh): SurfaceMesh | null {
+  try {
+    if (!mesh?.positions || mesh.positions.length < 9 || !mesh.indices || mesh.indices.length < 3) return null;
+    return prepareMeshForDisplay(mesh);
+  } catch (error) {
+    logError("prepare mesh", error, { vertices: mesh?.positions ? vertexCount(mesh) : 0 });
+    return null;
+  }
+}
+
+function finiteTarget(mesh: SurfaceMesh): Vector3 {
+  const { min, max } = mesh.bounds;
+  const values = [min?.x, min?.y, min?.z, max?.x, max?.y, max?.z];
+  if (values.some((value) => typeof value !== "number" || !Number.isFinite(value))) return { x: 0, y: 1, z: 0 };
+  return midpoint(min, max);
 }
 
 function link(gl: ExpoWebGLRenderingContext, vert: string, frag: string): WebGLProgram | null {
@@ -227,6 +278,10 @@ function link(gl: ExpoWebGLRenderingContext, vert: string, frag: string): WebGLP
   gl.attachShader(program, vs);
   gl.attachShader(program, fs);
   gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    logError("gl program", new Error(String(gl.getProgramInfoLog(program))));
+    return null;
+  }
   return program;
 }
 
@@ -235,20 +290,21 @@ function shader(gl: ExpoWebGLRenderingContext, type: number, source: string): We
   if (!handle) return null;
   gl.shaderSource(handle, source);
   gl.compileShader(handle);
+  if (!gl.getShaderParameter(handle, gl.COMPILE_STATUS)) {
+    logError("gl shader", new Error(String(gl.getShaderInfoLog(handle))));
+    return null;
+  }
   return handle;
 }
 
 function upload(gl: ExpoWebGLRenderingContext, mesh: ColoredMesh): GpuMesh | null {
   if (mesh.indices.length < 3) return null;
-  let wide = false;
   for (let i = 0; i < mesh.indices.length; i++) {
     if (mesh.indices[i] > 65535) {
-      wide = true;
-      break;
+      throw new Error("Mesh index does not fit in 16-bit GL.");
     }
   }
-  const indices = wide ? mesh.indices : Uint16Array.from(mesh.indices);
-  if (wide) gl.getExtension("OES_element_index_uint");
+  const indices = Uint16Array.from(mesh.indices);
   const position = buffer(gl, gl.ARRAY_BUFFER, mesh.positions);
   const normal = buffer(gl, gl.ARRAY_BUFFER, mesh.normals);
   const color = buffer(gl, gl.ARRAY_BUFFER, mesh.colors);
@@ -260,7 +316,7 @@ function upload(gl: ExpoWebGLRenderingContext, mesh: ColoredMesh): GpuMesh | nul
     color,
     index,
     count: mesh.indices.length,
-    indexType: wide ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
+    indexType: gl.UNSIGNED_SHORT,
   };
 }
 

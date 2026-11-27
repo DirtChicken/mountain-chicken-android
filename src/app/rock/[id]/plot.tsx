@@ -2,12 +2,13 @@ import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MeshCanvas } from "../../../components/MeshCanvas";
+import { ViewerBoundary } from "../../../components/ViewerBoundary";
 import { BigButton, Chip, ChipRow, Field } from "../../../components/ui";
 import { buildRoute, makePoint } from "../../../domain/create";
 import type { Route, RoutePoint, Vector3 } from "../../../domain/types";
 import { routeLengthMeters } from "../../../domain/route";
 import type { SurfaceMesh } from "../../../mesh/types";
-import { readMeshFile } from "../../../storage/meshFiles";
+import { loadDisplayMesh } from "../../../storage/meshFiles";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
@@ -55,7 +56,7 @@ export default function PlotScreen() {
   useEffect(() => {
     if (!scan?.meshUrl) return;
     let cancelled = false;
-    void readMeshFile(scan.meshUrl)
+    void loadDisplayMesh(scan.meshUrl)
       .then((loaded) => {
         if (!cancelled) setMesh(loaded);
       })
@@ -101,13 +102,15 @@ export default function PlotScreen() {
 
   return (
     <View style={styles.fill}>
-      <MeshCanvas
-        mesh={mesh}
-        routes={siblings}
-        draft={draft}
-        onPick={pick}
-        hint="One finger turns it. Pinch zooms. Tap the stone to drop the selected point."
-      />
+      <ViewerBoundary>
+        <MeshCanvas
+          mesh={mesh}
+          routes={siblings}
+          draft={draft}
+          onPick={pick}
+          hint="One finger turns it. Pinch zooms. Tap the stone to drop the selected point."
+        />
+      </ViewerBoundary>
       <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetBody}>
         <Text style={styles.length}>
           {draft.length} points · {routeLengthMeters(draft).toFixed(2)} m

@@ -164,15 +164,58 @@ export function basePoint(mesh: SurfaceMesh): Vector3 {
 }
 
 export function decimateMesh(mesh: SurfaceMesh, maxTriangles: number): SurfaceMesh {
-  const triangles = mesh.indices.length / 3;
-  if (triangles <= maxTriangles) return mesh;
-  const step = Math.ceil(triangles / maxTriangles);
+  const triangles = Math.floor(mesh.indices.length / 3);
+  const safeCap = Math.max(1, maxTriangles);
+  if (triangles <= safeCap) return compactReferencedVertices(mesh);
+  const step = Math.ceil(triangles / safeCap);
   const kept: number[] = [];
-  for (let t = 0; t < triangles; t += step) {
-    const i = t * 3;
-    kept.push(mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2]);
+  for (let triangle = 0; triangle < triangles; triangle += step) {
+    const index = triangle * 3;
+    kept.push(mesh.indices[index], mesh.indices[index + 1], mesh.indices[index + 2]);
   }
-  return { ...mesh, indices: Uint32Array.from(kept) };
+  return compactReferencedVertices({ ...mesh, indices: Uint32Array.from(kept) });
+}
+
+/** Drop vertices no remaining triangle uses, so indices stay dense and inside 16-bit GL. */
+export function compactReferencedVertices(mesh: SurfaceMesh): SurfaceMesh {
+  const count = Math.floor(mesh.positions.length / 3);
+  const remap = new Int32Array(count);
+  remap.fill(-1);
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  const sourceNormals = mesh.normals?.length === mesh.positions.length ? mesh.normals : null;
+
+  const take = (index: number): number => {
+    if (index < 0 || index >= count) return -1;
+    const existing = remap[index];
+    if (existing >= 0) return existing;
+    const offset = index * 3;
+    const next = positions.length / 3;
+    remap[index] = next;
+    positions.push(mesh.positions[offset], mesh.positions[offset + 1], mesh.positions[offset + 2]);
+    if (sourceNormals) {
+      normals.push(sourceNormals[offset], sourceNormals[offset + 1], sourceNormals[offset + 2]);
+    }
+    return next;
+  };
+
+  for (let i = 0; i + 2 < mesh.indices.length; i += 3) {
+    const a = take(mesh.indices[i]);
+    const b = take(mesh.indices[i + 1]);
+    const c = take(mesh.indices[i + 2]);
+    if (a < 0 || b < 0 || c < 0) continue;
+    indices.push(a, b, c);
+  }
+
+  const positionArray = Float32Array.from(positions);
+  const indexArray = Uint32Array.from(indices);
+  return {
+    positions: positionArray,
+    normals: sourceNormals ? Float32Array.from(normals) : computeNormals(positionArray, indexArray),
+    indices: indexArray,
+    bounds: positions.length >= 3 ? meshBounds(positionArray) : { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
+  };
 }
 
 function bucketKey(point: Vector3, cell: number): string {

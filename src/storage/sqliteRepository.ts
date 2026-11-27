@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import type { RockScan, Route } from "../domain/types";
 import { validateRockScan, validateRoute } from "../domain/validate";
+import { logError } from "../log";
 import type { LibraryRepository } from "./repository";
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -37,8 +38,14 @@ export function createSqliteRepository(): LibraryRepository {
       const scanRows = await db.getAllAsync<{ json: string }>("SELECT json FROM scans ORDER BY updated_at DESC");
       const routeRows = await db.getAllAsync<{ json: string }>("SELECT json FROM routes ORDER BY updated_at DESC");
       return {
-        scans: scanRows.map((row) => JSON.parse(row.json) as RockScan),
-        routes: routeRows.map((row) => JSON.parse(row.json) as Route),
+        scans: scanRows.flatMap((row) => {
+          const scan = readJson<RockScan>(row.json, "scan row");
+          return scan?.id ? [scan] : [];
+        }),
+        routes: routeRows.flatMap((row) => {
+          const route = readJson<Route>(row.json, "route row");
+          return route?.id && Array.isArray(route.points) ? [route] : [];
+        }),
       };
     },
     async saveScan(scan) {
@@ -74,4 +81,15 @@ export function createSqliteRepository(): LibraryRepository {
       await db.runAsync("DELETE FROM routes WHERE id = ?", id);
     },
   };
+}
+
+function readJson<T>(json: string, label: string): T | null {
+  try {
+    const value = JSON.parse(json) as T;
+    if (!value || typeof value !== "object") return null;
+    return value;
+  } catch (error) {
+    logError(label, error);
+    return null;
+  }
 }

@@ -13,11 +13,12 @@ import {
 } from "@reactvision/react-viro";
 import { originForAnchor, scanPointToWorld } from "../domain/frame";
 import type { Route, Vector3 } from "../domain/types";
+import { logError } from "../log";
 import { basePoint } from "../mesh/reconstruct";
 import type { SurfaceMesh } from "../mesh/types";
 import { colors } from "../theme/theme";
 import { bestHit, hitPosition } from "./hits";
-import { placeMesh } from "./placeMesh";
+import { placeMesh, type ViroMeshData } from "./placeMesh";
 
 ViroMaterials.createMaterials({
   mcSandstone: {
@@ -73,7 +74,14 @@ function SpaceScene() {
     };
   }, []);
 
-  const placed = live.locked ? placeMesh(live.mesh, live.origin, live.yaw, live.scale) : null;
+  let placed: ViroMeshData | null = null;
+  if (live.locked && live.mesh.positions.length >= 9) {
+    try {
+      placed = placeMesh(live.mesh, live.origin, live.yaw, live.scale);
+    } catch (error) {
+      logError("place mesh", error, { vertices: Math.floor(live.mesh.positions.length / 3) });
+    }
+  }
   return (
     <ViroARScene ref={sceneRef} anchorDetectionTypes={["PlanesHorizontal", "PlanesVertical"]}>
       <ViroAmbientLight color="#ffffff" intensity={500} />

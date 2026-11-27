@@ -1,6 +1,8 @@
 import { Platform } from "react-native";
 import { buildRoute, buildScan } from "../domain/create";
 import type { RockScan, Route, RoutePoint } from "../domain/types";
+import { logError, logInfo } from "../log";
+import { prepareMeshForDisplay } from "../mesh/prepareMesh";
 import type { SurfaceMesh } from "../mesh/types";
 import { readLocation } from "../device/location";
 import { writeMeshFile } from "../storage/meshFiles";
@@ -27,9 +29,14 @@ export async function saveMeshScan(input: {
     accuracy: fix?.accuracy,
     scannedByDevice: `${Platform.OS} ${String(Platform.Version)}`,
     scanQuality: input.quality,
-    boundingBox: input.mesh.bounds,
+    boundingBox: finiteBounds(input.mesh),
   });
-  const meshUrl = await writeMeshFile(draft.id, input.mesh);
+  const storedMesh = prepareMeshForDisplay(input.mesh);
+  logInfo("saving scan mesh", {
+    rawVertices: Math.floor(input.mesh.positions.length / 3),
+    storedVertices: Math.floor(storedMesh.positions.length / 3),
+  });
+  const meshUrl = await writeMeshFile(draft.id, storedMesh);
   const scan: RockScan = { ...draft, meshUrl };
   await useLibrary.getState().addScan(scan);
   if (input.points && input.points.length >= 2) {
@@ -44,4 +51,14 @@ export async function saveMeshScan(input: {
     await useLibrary.getState().addRoute(route);
   }
   return scan.id;
+}
+
+function finiteBounds(mesh: SurfaceMesh): SurfaceMesh["bounds"] | undefined {
+  const { min, max } = mesh.bounds ?? {};
+  const values = [min?.x, min?.y, min?.z, max?.x, max?.y, max?.z];
+  if (!min || !max || values.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+    logError("scan bounds", new Error("Scan bounds were not finite"), {});
+    return undefined;
+  }
+  return { min, max };
 }

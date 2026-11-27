@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ArSpaceView } from "../../../ar/ArSpaceView";
+import { ViewerBoundary } from "../../../components/ViewerBoundary";
 import { isArAvailable } from "../../../ar/availability";
 import type { SurfaceMesh } from "../../../mesh/types";
-import { readMeshFile } from "../../../storage/meshFiles";
+import { loadDisplayMesh } from "../../../storage/meshFiles";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
@@ -25,7 +26,7 @@ export default function SpaceScreen() {
   useEffect(() => {
     if (!scan?.meshUrl) return;
     let cancelled = false;
-    void readMeshFile(scan.meshUrl)
+    void loadDisplayMesh(scan.meshUrl)
       .then((loaded) => {
         if (!cancelled) setMesh(loaded);
       })
@@ -41,7 +42,11 @@ export default function SpaceScreen() {
     <View style={styles.fill}>
       {error ? <Text style={styles.missing}>{error}</Text> : null}
       {!error && !mesh ? <Text style={styles.missing}>Opening the model…</Text> : null}
-      {mesh ? <ArSpaceView mesh={mesh} routes={routes} /> : null}
+      {mesh ? (
+        <ViewerBoundary>
+          <ArSpaceView mesh={mesh} routes={routes} />
+        </ViewerBoundary>
+      ) : null}
       <SafeAreaView style={styles.top} pointerEvents="box-none">
         <Pressable onPress={() => router.back()} style={styles.back}>
           <Text style={styles.backText}>Back</Text>
