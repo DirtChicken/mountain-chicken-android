@@ -3,11 +3,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Mark } from "../components/Mark";
 import { BigButton } from "../components/ui";
+import { noteScreen } from "../device/diagnostics";
 import { formatPlace, formatWhen } from "../device/maps";
 import { useLibrary } from "../state/useLibrary";
 import { colors, space } from "../theme/theme";
 
 export default function HomeScreen() {
+  noteScreen("home");
   const ready = useLibrary((state) => state.ready);
   const error = useLibrary((state) => state.error);
   const scans = useLibrary((state) => state.scans);
@@ -26,6 +28,7 @@ export default function HomeScreen() {
         </View>
         <BigButton label="Scan a rock" onPress={() => router.push("/scan")} />
         <BigButton label="Route library" tone="slate" onPress={() => router.push("/library")} />
+        <BigButton label="Diagnostics" tone="slate" onPress={() => router.push("/diagnostics")} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Text style={styles.section}>{ready ? "On this phone" : "Opening saved rocks…"}</Text>
         {scans.length === 0 && ready ? (

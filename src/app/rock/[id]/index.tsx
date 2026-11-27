@@ -2,11 +2,13 @@ import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { BigButton } from "../../../components/ui";
+import { noteScreen } from "../../../device/diagnostics";
 import { formatPlace, formatWhen, hasSavedLocation, openMaps } from "../../../device/maps";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
 export default function RockScreen() {
+  noteScreen("rock detail");
   const { id } = useLocalSearchParams<{ id: string }>();
   const scanId = one(id);
   const scans = useLibrary((state) => state.scans);

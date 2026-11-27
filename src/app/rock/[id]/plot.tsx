@@ -1,22 +1,32 @@
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ComponentType } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { MeshCanvas } from "../../../components/MeshCanvas";
 import { ViewerBoundary } from "../../../components/ViewerBoundary";
 import { BigButton, Chip, ChipRow, Field } from "../../../components/ui";
+import { noteError, noteScreen, readTrace, subscribeTrace } from "../../../device/diagnostics";
 import { buildRoute, makePoint } from "../../../domain/create";
 import type { Route, RoutePoint, Vector3 } from "../../../domain/types";
 import { routeLengthMeters } from "../../../domain/route";
+import { highestIndex, vertexCount } from "../../../mesh/prepareMesh";
 import type { SurfaceMesh } from "../../../mesh/types";
 import { loadDisplayMesh } from "../../../storage/meshFiles";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
+
+type DrawProps = {
+  mesh: SurfaceMesh;
+  routes?: Route[];
+  draft?: RoutePoint[];
+  onPick?: (point: Vector3) => void;
+  hint?: string;
+};
 
 const GRADES = ["V0", "V2", "V3", "V4", "V5", "V6", "V8", "5.10a", "5.11a"];
 const POINT_TYPES: RoutePoint["type"][] = ["start", "hold", "path", "anchor", "finish"];
 const ROUTE_TYPES: Route["type"][] = ["boulder", "sport", "trad", "mixed"];
 
 export default function PlotScreen() {
+  noteScreen("plot: screen open");
   const params = useLocalSearchParams<{ id: string; routeId?: string }>();
   const scanId = one(params.id);
   const routeId = one(params.routeId);
@@ -40,6 +50,9 @@ export default function PlotScreen() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncedRoute, setSyncedRoute] = useState<string | null>(null);
+  const [DrawView, setDrawView] = useState<ComponentType<DrawProps> | null>(null);
+  const [drawing, setDrawing] = useState(false);
+  const trace = useSyncExternalStore(subscribeTrace, readTrace, readTrace);
   if (existing && syncedRoute !== existing.id) {
     setSyncedRoute(existing.id);
     setDraft(existing.points);
@@ -56,11 +69,15 @@ export default function PlotScreen() {
   useEffect(() => {
     if (!scan?.meshUrl) return;
     let cancelled = false;
+    noteScreen("plot: reading model");
     void loadDisplayMesh(scan.meshUrl)
       .then((loaded) => {
-        if (!cancelled) setMesh(loaded);
+        if (cancelled) return;
+        noteScreen("plot: model loaded", `${vertexCount(loaded)} vertices`);
+        setMesh(loaded);
       })
       .catch((loadError: unknown) => {
+        noteError(loadError);
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not open the model");
       });
     return () => {
@@ -96,24 +113,55 @@ export default function PlotScreen() {
     }
   };
 
+  const drawModel = async () => {
+    noteScreen("plot: loading 3d engine");
+    setDrawing(true);
+    try {
+      const loaded = await import("../../../components/ViroMeshView");
+      noteScreen("plot: 3d engine loaded");
+      setDrawView(() => loaded.ViroMeshView);
+    } catch (loadError) {
+      noteError(loadError, true);
+      Alert.alert("Could not start 3D", loadError instanceof Error ? loadError.message : "The 3D engine failed to load.");
+      setDrawing(false);
+    }
+  };
+
   if (!scan) return <Text style={styles.missing}>That rock is not on this phone.</Text>;
   if (error) return <Text style={styles.missing}>{error}</Text>;
   if (!mesh) return <Text style={styles.missing}>Opening the model…</Text>;
 
+  const stats = `${vertexCount(mesh)} vertices · ${Math.floor(mesh.indices.length / 3)} triangles · largest index ${highestIndex(mesh)}`;
+
   return (
     <View style={styles.fill}>
-      <ViewerBoundary>
-        <MeshCanvas
-          mesh={mesh}
-          routes={siblings}
-          draft={draft}
-          onPick={pick}
-          hint="One finger turns it. Pinch zooms. Tap the stone to drop the selected point."
-        />
-      </ViewerBoundary>
+      {DrawView ? (
+        <ViewerBoundary>
+          <DrawView
+            mesh={mesh}
+            routes={siblings}
+            draft={draft}
+            onPick={pick}
+            hint="One finger turns it. Pinch zooms. Tap the stone to drop the selected point."
+          />
+        </ViewerBoundary>
+      ) : (
+        <View style={styles.stats}>
+          <Text style={styles.statsTitle}>Model on this phone</Text>
+          <Text style={styles.statsBody}>{stats}</Text>
+          <Text style={styles.statsBody}>
+            Nothing is drawn yet. The last version closed the app while starting the graphics view, before the rock appeared. Drawing starts only when you tap the button.
+          </Text>
+          {trace.safeViewer ? (
+            <Text style={styles.statsBody}>Safe mode is on. Turn it off from Diagnostics if you want to try drawing.</Text>
+          ) : (
+            <BigButton label={drawing ? "Starting 3D…" : "Draw the model"} disabled={drawing} onPress={() => void drawModel()} />
+          )}
+        </View>
+      )}
       <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetBody}>
         <Text style={styles.length}>
-          {draft.length} points · {routeLengthMeters(draft).toFixed(2)} m
+          {stats} · {draft.length} points · {routeLengthMeters(draft).toFixed(2)} m
         </Text>
         <ChipRow>
           {POINT_TYPES.map((type) => (
@@ -159,6 +207,9 @@ function one(value: string | string[] | undefined): string {
 const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: colors.bg },
   missing: { color: colors.sand, padding: space.lg, fontSize: 16 },
+  stats: { flex: 1, justifyContent: "center", padding: space.lg, gap: 12, backgroundColor: colors.bg },
+  statsTitle: { color: colors.chalk, fontSize: 28, fontWeight: "800" },
+  statsBody: { color: colors.sand, fontSize: 16, lineHeight: 22 },
   sheet: { maxHeight: "46%", borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.bg },
   sheetBody: { padding: space.md, gap: 10, paddingBottom: 28 },
   length: { color: colors.chalk, fontWeight: "800", fontSize: 16 },

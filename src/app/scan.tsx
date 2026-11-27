@@ -9,10 +9,12 @@ import { practiceBoulder } from "../mesh/practiceBoulder";
 import { reconstructSurface } from "../mesh/reconstruct";
 import { chooseMeshPoints } from "../mesh/samples";
 import { getCaptureSnapshot, groupedSamples, resetCapture, type CaptureSnapshot } from "../state/scanCapture";
+import { noteScreen } from "../device/diagnostics";
 import { saveMeshScan } from "../state/saveMesh";
 import { colors, space } from "../theme/theme";
 
 export default function ScanScreen() {
+  noteScreen("scan");
   const ar = isArAvailable();
   const [capture, setCapture] = useState<CaptureSnapshot>(getCaptureSnapshot);
   const [name, setName] = useState("East face");

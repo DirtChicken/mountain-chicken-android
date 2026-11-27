@@ -10,8 +10,14 @@ export type ViroMeshData = {
 };
 
 /** Bake the scan into the current AR frame. The node itself stays at the origin. */
-export function placeMesh(mesh: SurfaceMesh, origin: Vector3, yaw: number, uniformScale: number): ViroMeshData {
-  const compact = prepareMeshForDisplay(mesh, AR_LIMITS);
+export function placeMesh(
+  mesh: SurfaceMesh,
+  origin: Vector3,
+  yaw: number,
+  uniformScale: number,
+  limits: { maxTriangles: number; maxVertices: number } = AR_LIMITS,
+): ViroMeshData {
+  const compact = prepareMeshForDisplay(mesh, limits);
   const vertices: [number, number, number][] = [];
   const normals: [number, number, number][] = [];
   for (let i = 0; i < compact.positions.length; i += 3) {

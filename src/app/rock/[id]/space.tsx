@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { noteScreen } from "../../../device/diagnostics";
 import { ArSpaceView } from "../../../ar/ArSpaceView";
 import { ViewerBoundary } from "../../../components/ViewerBoundary";
 import { isArAvailable } from "../../../ar/availability";
@@ -11,6 +12,7 @@ import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
 export default function SpaceScreen() {
+  noteScreen("space: screen open");
   const { id } = useLocalSearchParams<{ id: string }>();
   const scanId = Array.isArray(id) ? id[0] : id ?? "";
   const scans = useLibrary((state) => state.scans);

@@ -13,6 +13,12 @@ export const AR_LIMITS = {
   maxVertices: 4000,
 };
 
+/** Non-AR Viro view. Big enough to read a face, small enough for the React Native bridge. */
+export const VIEWER_LIMITS = {
+  maxTriangles: 4000,
+  maxVertices: 6000,
+};
+
 const INDEX_LIMIT = 65535;
 
 export function prepareMeshForDisplay(
