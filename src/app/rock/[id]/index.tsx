@@ -49,6 +49,7 @@ export default function RockScreen() {
         </Text>
       ) : null}
       <BigButton label="View the model and plot" onPress={() => router.push(`/rock/${scan.id}/plot`)} />
+      <BigButton label="Refine this scan" tone="sand" onPress={() => router.push(`/scan?refine=${scan.id}`)} />
       <BigButton label="In your space" tone="sand" onPress={() => router.push(`/rock/${scan.id}/space`)} />
       {hasSavedLocation(scan) ? (
         <BigButton label="Directions" tone="slate" onPress={() => void openMaps(scan)} />

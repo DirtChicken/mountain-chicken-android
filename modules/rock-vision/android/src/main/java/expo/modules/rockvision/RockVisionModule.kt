@@ -9,6 +9,7 @@ import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +36,7 @@ class RockVisionModule : Module() {
           return@withContext mapOf("success" to false, "error" to "Camera surface is not ready")
         }
         val bitmap = Bitmap.createBitmap(surface.width, surface.height, Bitmap.Config.ARGB_8888)
-        suspendCancellableCoroutine { continuation ->
+        suspendCancellableCoroutine<Map<String, Any>> { continuation ->
           PixelCopy.request(surface, bitmap, { result ->
             if (result != PixelCopy.SUCCESS) {
               continuation.resume(mapOf("success" to false, "error" to "Could not copy the camera image"))

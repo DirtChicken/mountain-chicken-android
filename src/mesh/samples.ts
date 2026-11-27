@@ -79,7 +79,7 @@ export function chooseMeshPoints(groups: Record<SampleKind, Vector3[]>): MeshSam
     return {
       points: [],
       quality: "low",
-      warning: "Not enough of the rock locked in. Walk a slower half-circle and keep the face in frame.",
+      warning: "Not enough of the rock locked in. Keep making passes — closer, from below, and across the top.",
     };
   }
   return { points, quality, warning };

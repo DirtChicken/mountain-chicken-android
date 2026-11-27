@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -8,7 +8,7 @@ import { BigButton } from "../components/ui";
 import { practiceBoulder } from "../mesh/practiceBoulder";
 import { reconstructSurface } from "../mesh/reconstruct";
 import { chooseMeshPoints } from "../mesh/samples";
-import { getCaptureSnapshot, getScanOrigin, getScanPhotos, groupedSamples, resetCapture, type CaptureSnapshot } from "../state/scanCapture";
+import { getCaptureSnapshot, getScanOrigin, getScanPhotos, groupedSamples, resetCapture, setCapturePaused, type CaptureSnapshot } from "../state/scanCapture";
 import { noteScreen } from "../device/diagnostics";
 import { extendMeshScan, saveMeshScan } from "../state/saveMesh";
 import { cameraMatrix } from "../mesh/photo";
@@ -21,17 +21,23 @@ import { useLibrary } from "../state/useLibrary";
 import type { Mat4 } from "../viewer/math";
 import type { SurfaceMesh } from "../mesh/types";
 import type { Route } from "../domain/types";
+import { spillFusionCheckpoint } from "../storage/fusionCheckpoint";
+import type { CoverageCell } from "../mesh/coverage";
 import { colors, space } from "../theme/theme";
 
 export default function ScanScreen() {
   noteScreen("scan");
+  const params = useLocalSearchParams<{ refine?: string }>();
+  const refineParam = Array.isArray(params.refine) ? params.refine[0] : params.refine;
   const ar = isArAvailable();
   const [capture, setCapture] = useState<CaptureSnapshot>(getCaptureSnapshot);
-  const [name, setName] = useState("East face");
+  const refineScan = useLibrary((state) => state.scans.find((item) => item.id === refineParam));
+  const [customName, setCustomName] = useState<string | null>(null);
+  const name = customName ?? refineScan?.name ?? "East face";
   const [saving, setSaving] = useState(false);
   const [showName, setShowName] = useState(false);
   const [match, setMatch] = useState<Recognition | null>(null);
-  const [extendId, setExtendId] = useState<string | null>(null);
+  const [extendId, setExtendId] = useState<string | null>(refineParam ?? null);
   const maps = useRef<FingerprintMap[]>([]);
   const placedMesh = useRef<{ id: string; mesh: SurfaceMesh; routes: Route[] } | null>(null);
   const twist = useRef(0);
@@ -53,8 +59,12 @@ export default function ScanScreen() {
     })).then((loaded) => {
       maps.current = loaded.filter((item): item is FingerprintMap => Boolean(item));
     }).catch(() => undefined);
-    return () => clearInterval(timer);
-  }, []);
+    const spill = setInterval(() => { void spillFusionCheckpoint(); }, 8000);
+    return () => {
+      clearInterval(timer);
+      clearInterval(spill);
+    };
+  }, [refineParam]);
 
   const placeMatch = async (found: Recognition, extraYaw = 0) => {
     const scan = useLibrary.getState().scans.find((item) => item.id === found.scanId);
@@ -95,7 +105,18 @@ export default function ScanScreen() {
   const saveReal = async () => {
     const choice = chooseMeshPoints(groupedSamples());
     if (!choice.points.length) {
-      Alert.alert("Keep walking", choice.warning ?? "The rock has not locked in yet.");
+      Alert.alert("Keep making passes", choice.warning ?? "The rock has not locked in yet.");
+      return;
+    }
+    if (extendId && !match) {
+      Alert.alert(
+        "Not lined up yet",
+        "Keep this face in frame until it is recognized, then finish. Those passes fuse into the saved rock. Or save this walk as a new one.",
+        [
+          { text: "Keep scanning", style: "cancel", onPress: () => { setCapturePaused(false); setShowName(false); } },
+          { text: "Save as new", onPress: () => { setExtendId(null); setShowName(true); } },
+        ],
+      );
       return;
     }
     const go = async () => {
@@ -192,9 +213,13 @@ export default function ScanScreen() {
           {ar ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
-                {capture.tracking} · {capture.source} · {capture.depthCount} depth · {capture.worldVertices} mesh verts
+                {capture.paused ? "paused" : capture.tracking} · {capture.depthCount} depth · {capture.photoCount} photos · {capture.sampleCount} cells
               </Text>
+              <CoverageMap cells={capture.coverage} />
             </View>
+          ) : null}
+          {refineParam ? (
+            <Text style={styles.coaching}>Refining {name}. New passes stay in this scan once the rock is recognized.</Text>
           ) : null}
         </View>
         <View style={styles.bottom} pointerEvents="box-none">
@@ -215,7 +240,7 @@ export default function ScanScreen() {
           {showName || !ar ? (
             <TextInput
               value={name}
-              onChangeText={setName}
+              onChangeText={setCustomName}
               placeholder="Name this face"
               placeholderTextColor={colors.muted}
               style={styles.input}
@@ -223,10 +248,26 @@ export default function ScanScreen() {
           ) : null}
           {ar ? (
             <BigButton
-              label={saving ? "Building the model…" : extendId ? "Save onto the recognized rock" : showName ? "Save this face" : "Save the scan"}
+              label={capture.paused && !showName ? "Resume" : "Pause"}
+              tone="slate"
+              disabled={saving}
+              onPress={() => {
+                if (capture.paused) {
+                  setCapturePaused(false);
+                  setShowName(false);
+                } else {
+                  setCapturePaused(true);
+                }
+              }}
+            />
+          ) : null}
+          {ar ? (
+            <BigButton
+              label={saving ? "Building the model…" : showName ? (extendId ? `Fuse into ${name}` : "Save this face") : "Finish scan"}
               disabled={saving}
               onPress={() => {
                 if (!showName) {
+                  setCapturePaused(true);
                   setShowName(true);
                   return;
                 }
@@ -242,6 +283,23 @@ export default function ScanScreen() {
           />
         </View>
       </SafeAreaView>
+    </View>
+  );
+}
+
+function CoverageMap({ cells }: { cells: CoverageCell[][] }) {
+  return (
+    <View style={styles.coverage}>
+      {[...cells].reverse().map((row, rowIndex) => (
+        <View key={rowIndex} style={styles.coverageRow}>
+          {row.map((cell, column) => (
+            <View
+              key={column}
+              style={[styles.cell, cell === 2 ? styles.cellSolid : cell === 1 ? styles.cellThin : styles.cellEmpty]}
+            />
+          ))}
+        </View>
+      ))}
     </View>
   );
 }
@@ -264,6 +322,12 @@ const styles = StyleSheet.create({
   badge: { alignSelf: "flex-start", backgroundColor: "rgba(18,20,16,0.78)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
   badgeText: { color: colors.chalk, fontWeight: "700" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 8 },
+  coverage: { marginTop: 8, gap: 2 },
+  coverageRow: { flexDirection: "row", gap: 2 },
+  cell: { width: 14, height: 10, borderRadius: 2 },
+  cellSolid: { backgroundColor: colors.copper },
+  cellThin: { backgroundColor: colors.sand },
+  cellEmpty: { backgroundColor: colors.line },
   bottom: { padding: space.md, gap: 10 },
   coaching: {
     color: colors.chalk,

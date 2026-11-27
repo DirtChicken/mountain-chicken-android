@@ -1,7 +1,9 @@
-import { dist, sub } from "../domain/vec";
+import { dist, length, sub } from "../domain/vec";
 import type { Vector3 } from "../domain/types";
+import { coverageAdvice, coverageGrid, type CoverageCell } from "../mesh/coverage";
+import { FUSION_VOXEL, fuseSample } from "../mesh/fusion";
 import type { ScanPhoto } from "../mesh/photo";
-import { accumulateSample, pointsFromMap } from "../mesh/samples";
+import { pointsFromMap } from "../mesh/samples";
 import type { Accum, SampleKind } from "../mesh/types";
 
 export type CaptureSnapshot = {
@@ -15,6 +17,9 @@ export type CaptureSnapshot = {
   worldTriangles: number;
   accumulated: boolean;
   coaching: string;
+  paused: boolean;
+  photoCount: number;
+  coverage: CoverageCell[][];
 };
 
 const map = new Map<string, Accum>();
@@ -26,6 +31,10 @@ let worldVertices = 0;
 let worldTriangles = 0;
 let accumulated = false;
 let coaching = "Point the camera at the rock.";
+let trackingMessage = "Point the camera at the rock.";
+let paused = false;
+let voxel = FUSION_VOXEL;
+let lastCamera: Vector3 | null = null;
 let snapshot: CaptureSnapshot = emptySnapshot();
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -42,22 +51,37 @@ export function resetCapture(): void {
   worldTriangles = 0;
   accumulated = false;
   coaching = "Point the camera at the rock.";
+  trackingMessage = coaching;
+  paused = false;
+  voxel = FUSION_VOXEL;
+  lastCamera = null;
   publish();
+}
+
+export function setCapturePaused(next: boolean): void {
+  paused = next;
+  publish();
+}
+
+export function isCapturePaused(): boolean {
+  return paused;
 }
 
 export function noteCameraOrigin(position: Vector3): void {
   if (!origin) origin = { ...position };
+  lastCamera = origin ? sub(position, origin) : { x: 0, y: 0, z: 0 };
 }
 
 export function noteSample(world: Vector3, kind: SampleKind): void {
+  if (paused) return;
   const local = origin ? sub(world, origin) : world;
-  accumulateSample(map, local, kind, 0.015);
+  voxel = fuseSample(map, local, kind, voxel);
   schedule();
 }
 
 export function noteTracking(next: string, message: string): void {
   tracking = next;
-  coaching = message;
+  trackingMessage = message;
   schedule();
 }
 
@@ -90,6 +114,7 @@ let lastPhotoAt = 0;
 let lastPhotoPlace: Vector3 | null = null;
 
 export function addScanPhoto(photo: ScanPhoto): void {
+  if (paused) return;
   const now = Date.now();
   const place = photoPosition(photo);
   if (place && lastPhotoPlace && lastPhotoAt > 0) {
@@ -108,7 +133,16 @@ export function addScanPhoto(photo: ScanPhoto): void {
     return;
   }
   photos.push(photo);
-  if (photos.length > 12) dropMostRedundant();
+  if (photos.length > 24) dropMostRedundant();
+}
+
+export function fusedCells(): { x: number; y: number; z: number; n: number }[] {
+  return [...map.values()].map((cell) => ({
+    x: cell.x / cell.n,
+    y: cell.y / cell.n,
+    z: cell.z / cell.n,
+    n: cell.n,
+  }));
 }
 
 function dropMostRedundant(): void {
@@ -156,8 +190,24 @@ function schedule(): void {
   }, 180);
 }
 
+export function flushCapture(): void {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  publish();
+}
+
 function publish(): void {
   const groups = pointsFromMap(map);
+  const points = groups.depth.concat(groups.feature, groups.plane);
+  const coverage = coverageGrid(points);
+  const distance = lastCamera && points.length ? distanceToCloud(lastCamera, points) : null;
+  coaching = paused
+    ? "Paused. This is still the same scan. Resume to keep fusing, or finish when you mean to stop."
+    : tracking === "locked"
+      ? coverageAdvice(coverage, distance)
+      : trackingMessage;
   snapshot = {
     sampleCount: map.size,
     depthCount: groups.depth.length,
@@ -169,6 +219,9 @@ function publish(): void {
     worldTriangles,
     accumulated,
     coaching,
+    paused,
+    photoCount: photos.length,
+    coverage,
   };
   listeners.forEach((listener) => listener());
 }
@@ -185,5 +238,17 @@ function emptySnapshot(): CaptureSnapshot {
     worldTriangles: 0,
     accumulated: false,
     coaching: "Point the camera at the rock.",
+    paused: false,
+    photoCount: 0,
+    coverage: Array.from({ length: 8 }, () => new Array<CoverageCell>(8).fill(0)),
   };
+}
+
+function distanceToCloud(camera: Vector3, points: Vector3[]): number {
+  let nearest = Infinity;
+  const step = Math.max(1, Math.floor(points.length / 80));
+  for (let i = 0; i < points.length; i += step) {
+    nearest = Math.min(nearest, length(sub(camera, points[i])));
+  }
+  return nearest;
 }

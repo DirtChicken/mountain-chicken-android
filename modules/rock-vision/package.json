@@ -1,6 +1,8 @@
 {
   "name": "rock-vision",
   "version": "1.0.0",
+  "description": "Color camera frames and on-device rock features for Mountain Chicken",
+  "license": "MIT",
   "main": "index.ts",
   "types": "index.ts",
   "peerDependencies": {

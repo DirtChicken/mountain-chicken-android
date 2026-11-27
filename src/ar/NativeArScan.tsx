@@ -198,7 +198,7 @@ function trackingLabel(state: number): string {
 
 function coachingFor(state: number, reason: number): string {
   if (state === ViroTrackingStateConstants.TRACKING_NORMAL) {
-    return "Walk a slow half-circle. The camera is photographing the face while the mesh locks in.";
+    return "Keep making passes. Closer, from below, and across the top all fuse into this same scan.";
   }
   if (reason === ViroARTrackingReasonConstants.TRACKING_REASON_EXCESSIVE_MOTION) {
     return "Slow down. Sidestep, don't swing the phone.";

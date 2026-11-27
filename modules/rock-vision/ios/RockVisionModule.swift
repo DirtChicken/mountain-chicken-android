@@ -41,7 +41,7 @@ public class RockVisionModule: Module {
       return ["success": false, "error": "Could not read the camera image"]
     }
     let longest = max(image.size.width, image.size.height)
-    let scale = longest > 1280 ? 1280 / longest : 1
+    let scale: CGFloat = longest > 1280 ? 1280 / longest : 1
     let sized = scale < 1 ? scaleImage(image, scale) : image
     guard let jpeg = sized.jpegData(compressionQuality: 0.86) else {
       return ["success": false, "error": "JPEG encoding failed"]

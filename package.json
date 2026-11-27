@@ -1,6 +1,6 @@
 {
   "name": "mountain-chicken",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "main": "expo-router/entry",
   "dependencies": {
     "@reactvision/react-viro": "^3.3.0",
@@ -42,7 +42,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/domain/*.test.ts src/mesh/*.test.ts src/viewer/*.test.ts src/storage/*.test.ts src/device/*.test.ts src/reloc/*.test.ts"
+    "test": "tsx --test src/domain/*.test.ts src/mesh/*.test.ts src/viewer/*.test.ts src/storage/*.test.ts src/device/*.test.ts src/reloc/*.test.ts src/state/*.test.ts"
   },
   "private": true
 }
