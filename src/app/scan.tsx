@@ -8,7 +8,7 @@ import { BigButton } from "../components/ui";
 import { practiceBoulder } from "../mesh/practiceBoulder";
 import { reconstructSurface } from "../mesh/reconstruct";
 import { chooseMeshPoints } from "../mesh/samples";
-import { getCaptureSnapshot, getScanOrigin, getScanPhotos, groupedSamples, resetCapture, setCapturePaused, type CaptureSnapshot } from "../state/scanCapture";
+import { getCaptureSnapshot, getScanOrigin, getScanPhotos, groupedSamples, isDetailMode, resetCapture, setCapturePaused, setDetailMode, type CaptureSnapshot } from "../state/scanCapture";
 import { noteScreen } from "../device/diagnostics";
 import { extendMeshScan, saveMeshScan } from "../state/saveMesh";
 import { cameraMatrix } from "../mesh/photo";
@@ -23,6 +23,7 @@ import type { SurfaceMesh } from "../mesh/types";
 import type { Route } from "../domain/types";
 import { readDepthReport, subscribeDepthReport } from "../device/depthReport";
 import { spillFusionCheckpoint } from "../storage/fusionCheckpoint";
+import { runDetailJob, saveDetailPhotos } from "../detail/job";
 import type { CoverageCell } from "../mesh/coverage";
 import { colors, space } from "../theme/theme";
 
@@ -153,12 +154,19 @@ export default function ScanScreen() {
         }
         const id = await saveMeshScan({
           name: name.trim() || "Rock face",
-          description,
+          description: isDetailMode() ? `${description} High detail photos are queued for the PC.`.trim() : description,
           mesh,
-          quality: choice.quality,
+          quality: isDetailMode() ? "high" : choice.quality,
           photos,
           origin,
         });
+        if (isDetailMode()) {
+          const saved = useLibrary.getState().scans.find((item) => item.id === id);
+          if (saved?.meshUrl) {
+            await saveDetailPhotos(saved.meshUrl, photos);
+            runDetailJob(saved.meshUrl);
+          }
+        }
         router.replace(`/rock/${id}`);
       } catch (error) {
         Alert.alert("Could not save", error instanceof Error ? error.message : "Try again.");
@@ -251,6 +259,14 @@ export default function ScanScreen() {
           ) : null}
           {ar ? (
             <BigButton
+              label={capture.detail ? `High detail · ${capture.photoCount}/150` : "High detail off"}
+              tone={capture.detail ? "sand" : "slate"}
+              disabled={saving}
+              onPress={() => setDetailMode(!capture.detail)}
+            />
+          ) : null}
+          {ar ? (
+            <BigButton
               label={capture.paused && !showName ? "Resume" : "Pause"}
               tone="slate"
               disabled={saving}
@@ -270,6 +286,13 @@ export default function ScanScreen() {
               disabled={saving}
               onPress={() => {
                 if (!showName) {
+                  if (isDetailMode() && getScanPhotos().length < 60) {
+                    Alert.alert("Need more overlap", `High detail keeps going until 60 sharp photos. This pass has ${getScanPhotos().length}.`, [
+                      { text: "Keep scanning", style: "cancel" },
+                      { text: "Save the rough scan", onPress: () => { setDetailMode(false); setCapturePaused(true); setShowName(true); } },
+                    ]);
+                    return;
+                  }
                   setCapturePaused(true);
                   setShowName(true);
                   return;

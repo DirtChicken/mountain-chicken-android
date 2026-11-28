@@ -10,12 +10,14 @@ export function ArSpaceView({
   objUri = null,
   textureUri = null,
   glbUri = null,
+  onModelError,
 }: {
   mesh: SurfaceMesh;
   routes: Route[];
   objUri?: string | null;
   textureUri?: string | null;
   glbUri?: string | null;
+  onModelError?: () => void;
 }) {
   if (!isArAvailable()) {
     return (
@@ -29,7 +31,7 @@ export function ArSpaceView({
   // Loaded only when the native AR view exists, so Expo Go and web never evaluate Viro.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const native = require("./NativeArSpace") as typeof import("./NativeArSpace");
-  return <native.NativeArSpace mesh={mesh} routes={routes} objUri={objUri} textureUri={textureUri} glbUri={glbUri} />;
+  return <native.NativeArSpace mesh={mesh} routes={routes} objUri={objUri} textureUri={textureUri} glbUri={glbUri} onModelError={onModelError} />;
 }
 
 const styles = StyleSheet.create({

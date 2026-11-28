@@ -41,3 +41,7 @@ yarn-error.*
 /android
 modules/rock-vision/android/build/
 modules/rock-vision/android/.cxx/
+server/gateway/node_modules/
+server/gateway/dist/
+server/gateway/data/
+server/gateway/.env

@@ -1,6 +1,6 @@
 {
   "name": "mountain-chicken",
-  "version": "2.0.8",
+  "version": "2.1.0",
   "main": "expo-router/entry",
   "dependencies": {
     "@reactvision/react-viro": "^3.3.0",
@@ -11,12 +11,13 @@
     "expo-gl": "~58.0.4",
     "expo-linking": "~58.0.17",
     "expo-location": "~58.0.23",
+    "expo-network": "~58.0.6",
     "expo-router": "~58.0.33",
+    "expo-secure-store": "~58.0.3",
     "expo-sqlite": "~58.0.18",
     "expo-status-bar": "~58.0.5",
     "expo-system-ui": "~58.0.7",
     "jpeg-js": "^0.4.4",
-    "rock-vision": "file:./modules/rock-vision",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
@@ -25,6 +26,7 @@
     "react-native-screens": "~4.30.1",
     "react-native-svg": "15.16.0",
     "react-native-web": "^0.21.4",
+    "rock-vision": "file:./modules/rock-vision",
     "zustand": "^5.1.0"
   },
   "devDependencies": {
@@ -41,8 +43,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/domain/*.test.ts src/codec/*.test.ts src/mesh/*.test.ts src/viewer/*.test.ts src/storage/*.test.ts src/device/*.test.ts src/reloc/*.test.ts src/state/*.test.ts src/ar/*.test.ts"
+    "typecheck": "tsc --noEmit && tsc -p server/gateway --noEmit",
+    "test": "tsx --test src/domain/*.test.ts src/codec/*.test.ts src/detail/*.test.ts src/mesh/*.test.ts src/viewer/*.test.ts src/storage/*.test.ts src/device/*.test.ts src/reloc/*.test.ts src/state/*.test.ts src/ar/*.test.ts server/gateway/src/*.test.ts"
   },
   "private": true
 }

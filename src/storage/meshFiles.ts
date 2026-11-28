@@ -108,21 +108,23 @@ export async function readFingerprints(meshUrl: string): Promise<string | null> 
   }
 }
 
-export async function faceModelUris(meshUrl: string): Promise<{ jpgUri: string | null; glbUri: string | null; jpgBytes: number }> {
-  if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return { jpgUri: null, glbUri: null, jpgBytes: 0 };
+export async function faceModelUris(meshUrl: string): Promise<{ jpgUri: string | null; glbUri: string | null; fallbackGlbUri: string | null; jpgBytes: number }> {
+  if (!meshUrl || meshUrl.startsWith(WEB_PREFIX)) return { jpgUri: null, glbUri: null, fallbackGlbUri: null, jpgBytes: 0 };
   try {
     const { File } = await import("expo-file-system");
     const folder = new File(meshUrl).parentDirectory;
     const jpg = new File(folder, "mesh.jpg");
     const glb = new File(folder, "mesh.glb");
+    const detail = new File(folder, "mesh-detail.glb");
     return {
       jpgUri: jpg.exists ? jpg.uri : null,
-      glbUri: glb.exists ? glb.uri : null,
+      glbUri: detail.exists ? detail.uri : glb.exists ? glb.uri : null,
+      fallbackGlbUri: detail.exists && glb.exists ? glb.uri : null,
       jpgBytes: jpg.exists && typeof jpg.size === "number" ? jpg.size : 0,
     };
   } catch (error) {
     logError("texture lookup", error, { scheme: uriScheme(meshUrl) });
-    return { jpgUri: null, glbUri: null, jpgBytes: 0 };
+    return { jpgUri: null, glbUri: null, fallbackGlbUri: null, jpgBytes: 0 };
   }
 }
 

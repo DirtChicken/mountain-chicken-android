@@ -30,6 +30,7 @@ export default function RootLayout() {
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="library" options={{ title: "Route library" }} />
           <Stack.Screen name="diagnostics" options={{ title: "Diagnostics" }} />
+          <Stack.Screen name="settings" options={{ title: "Settings" }} />
           <Stack.Screen name="scan" options={{ headerShown: false }} />
           <Stack.Screen name="rock/[id]/index" options={{ title: "Rock" }} />
           <Stack.Screen name="rock/[id]/plot" options={{ title: "Plot the route" }} />

@@ -4,6 +4,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { BigButton } from "../../../components/ui";
 import { noteScreen } from "../../../device/diagnostics";
 import { formatPlace, formatWhen, hasSavedLocation, openMaps } from "../../../device/maps";
+import { readDetailJob, runDetailJob, type DetailJobFile } from "../../../detail/job";
 import { useLibrary } from "../../../state/useLibrary";
 import { colors, space } from "../../../theme/theme";
 
@@ -22,6 +23,26 @@ export default function RockScreen() {
   const removeRoute = useLibrary((state) => state.removeRoute);
   const navigation = useNavigation();
   const [removing, setRemoving] = useState(false);
+  const [detailJob, setDetailJob] = useState<DetailJobFile | null>(null);
+
+  useEffect(() => {
+    if (!scan?.meshUrl) return;
+    const meshUrl = scan.meshUrl;
+    let alive = true;
+    const tick = () => {
+      void readDetailJob(meshUrl).then((job) => {
+        if (!alive) return;
+        setDetailJob(job);
+        if (job && job.status !== "complete" && job.status !== "failed") runDetailJob(meshUrl);
+      });
+    };
+    tick();
+    const timer = setInterval(tick, 3000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [scan?.meshUrl]);
 
   useEffect(() => {
     if (scan?.name) navigation.setOptions({ title: scan.name });
@@ -47,6 +68,14 @@ export default function RockScreen() {
         <Text style={styles.meta}>
           About {span(scan).toFixed(1)} m across, measured in scan meters.
         </Text>
+      ) : null}
+      {detailJob ? (
+        <Text style={styles.bodyText}>
+          High detail: {detailJob.message} {detailJob.progress ? `(${detailJob.progress}%)` : ""}
+        </Text>
+      ) : null}
+      {detailJob?.status === "failed" && scan.meshUrl ? (
+        <BigButton label="Try the high detail upload again" tone="slate" onPress={() => runDetailJob(scan.meshUrl!)} />
       ) : null}
       <BigButton label="View the model and plot" onPress={() => router.push(`/rock/${scan.id}/plot`)} />
       <BigButton label="Refine this scan" tone="sand" onPress={() => router.push(`/scan?refine=${scan.id}`)} />

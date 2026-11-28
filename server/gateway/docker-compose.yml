@@ -1,0 +1,27 @@
+services:
+  nodeodm:
+    image: opendronemap/nodeodm:gpu
+    restart: unless-stopped
+    gpus: all
+    expose:
+      - "3000"
+    volumes:
+      - ${NODEODM_DATA:-D:/nodeodm-data}:/var/www/data
+
+  gateway:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - nodeodm
+    ports:
+      - "8787:8787"
+    environment:
+      APP_KEY: ${APP_KEY:?Set APP_KEY in .env}
+      NODEODM_URL: http://nodeodm:3000
+      DATA_DIR: /data
+      PORT: "8787"
+    volumes:
+      - gateway-data:/data
+
+volumes:
+  gateway-data:

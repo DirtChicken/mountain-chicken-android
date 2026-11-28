@@ -22,6 +22,7 @@ type DrawProps = {
   objUri?: string | null;
   glbUri?: string | null;
   textureUri?: string | null;
+  onModelError?: () => void;
 };
 
 const GRADES = ["V0", "V2", "V3", "V4", "V5", "V6", "V8", "5.10a", "5.11a"];
@@ -46,6 +47,8 @@ export default function PlotScreen() {
   const [mesh, setMesh] = useState<SurfaceMesh | null>(null);
   const [textureUri, setTextureUri] = useState<string | null>(null);
   const [glbUri, setGlbUri] = useState<string | null>(null);
+  const [fallbackGlbUri, setFallbackGlbUri] = useState<string | null>(null);
+  const [useFallback, setUseFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pointType, setPointType] = useState<RoutePoint["type"]>("hold");
   const [draft, setDraft] = useState<RoutePoint[]>([]);
@@ -84,6 +87,7 @@ export default function PlotScreen() {
         if (!cancelled) {
           setTextureUri(face?.jpgUri ?? null);
           setGlbUri(face?.glbUri ?? null);
+          setFallbackGlbUri(face?.fallbackGlbUri ?? null);
         }
       })
       .catch((loadError: unknown) => {
@@ -153,8 +157,11 @@ export default function PlotScreen() {
             draft={draft}
             onPick={pick}
             objUri={scan.meshUrl}
-            glbUri={glbUri}
+            glbUri={useFallback ? fallbackGlbUri : glbUri}
             textureUri={textureUri}
+            onModelError={() => {
+              if (fallbackGlbUri) setUseFallback(true);
+            }}
             hint={glbUri || textureUri ? "Photo of the face, in the scan's meters. One finger turns it. Pinch zooms. Tap to plot." : "No photo was saved with this scan, so the rock is plain stone. One finger turns it. Tap to plot."}
           />
         </ViewerBoundary>

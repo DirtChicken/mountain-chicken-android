@@ -29,6 +29,7 @@ export default function HomeScreen() {
         <BigButton label="Scan a rock" onPress={() => router.push("/scan")} />
         <BigButton label="Route library" tone="slate" onPress={() => router.push("/library")} />
         <BigButton label="Diagnostics" tone="slate" onPress={() => router.push("/diagnostics")} />
+        <BigButton label="Settings" tone="slate" onPress={() => router.push("/settings")} />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Text style={styles.section}>{ready ? "On this phone" : "Opening saved rocks…"}</Text>
         {scans.length === 0 && ready ? (

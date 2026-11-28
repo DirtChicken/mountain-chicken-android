@@ -46,6 +46,7 @@ type Live = {
   objUri: string | null;
   textureUri: string | null;
   glbUri: string | null;
+  onModelError?: () => void;
 };
 
 const live: Live = {
@@ -60,6 +61,7 @@ const live: Live = {
   objUri: null,
   textureUri: null,
   glbUri: null,
+  onModelError: undefined as (() => void) | undefined,
 };
 
 function SpaceScene() {
@@ -102,7 +104,10 @@ function SpaceScene() {
           rotation={[0, (live.yaw * 180) / Math.PI, 0]}
           scale={[live.scale, live.scale, live.scale]}
           onLoadEnd={() => noteTextureLoad(true)}
-          onError={(event) => noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"))}
+          onError={(event) => {
+            noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"));
+            live.onModelError?.();
+          }}
         />
       ) : live.textureUri && live.objUri ? (
         <Viro3DObject
@@ -169,12 +174,14 @@ export function NativeArSpace({
   objUri = null,
   textureUri = null,
   glbUri = null,
+  onModelError,
 }: {
   mesh: SurfaceMesh;
   routes: Route[];
   objUri?: string | null;
   textureUri?: string | null;
   glbUri?: string | null;
+  onModelError?: () => void;
 }) {
   const [locked, setLocked] = useState(false);
   const [yawDeg, setYawDeg] = useState(0);
@@ -200,6 +207,7 @@ export function NativeArSpace({
   live.objUri = objUri;
   live.textureUri = textureUri;
   live.glbUri = glbUri;
+  live.onModelError = onModelError;
   /* eslint-enable react-hooks/immutability */
 
   const lock = async () => {

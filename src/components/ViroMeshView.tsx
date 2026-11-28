@@ -39,7 +39,9 @@ type Props = {
   hint?: string;
   objUri?: string | null;
   glbUri?: string | null;
+  fallbackGlbUri?: string | null;
   textureUri?: string | null;
+  onModelError?: () => void;
 };
 
 const camera = {
@@ -54,6 +56,7 @@ const camera = {
   onPick: undefined as ((point: Vector3) => void) | undefined,
   objUri: null as string | null,
   glbUri: null as string | null,
+  onModelError: undefined as (() => void) | undefined,
   textureUri: null as string | null,
   width: 1,
   height: 1,
@@ -141,7 +144,10 @@ function RockScene() {
           source={{ uri: camera.glbUri }}
           type="GLB"
           onLoadEnd={() => noteTextureLoad(true)}
-          onError={(event) => noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"))}
+          onError={(event) => {
+            noteTextureLoad(false, String(event.nativeEvent?.error ?? "could not read the photo model"));
+            camera.onModelError?.();
+          }}
         />
       ) : camera.textureUri && camera.objUri ? (
         <Viro3DObject
@@ -189,7 +195,7 @@ function RouteLine({ points }: { points: RoutePoint[] }) {
   );
 }
 
-export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objUri = null, glbUri = null, textureUri = null }: Props) {
+export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objUri = null, glbUri = null, textureUri = null, onModelError }: Props) {
   const [, bump] = useState(0);
   // The Viro scene function is captured once and reads this object while the view mounts.
   /* eslint-disable react-hooks/immutability, react-hooks/globals */
@@ -200,6 +206,7 @@ export function ViroMeshView({ mesh, routes = [], draft = [], onPick, hint, objU
   camera.onPick = onPick;
   camera.objUri = objUri;
   camera.glbUri = glbUri;
+  camera.onModelError = onModelError;
   camera.textureUri = textureUri;
   camera.target = finiteTarget(mesh);
   if (camera.distance < 0.2) {

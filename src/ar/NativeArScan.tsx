@@ -12,8 +12,8 @@ import {
 } from "@reactvision/react-viro";
 import { bestHit, hitPosition, sampleKind } from "./hits";
 import { scanStage } from "./scanStage";
-import { addScanPhoto, getCaptureSnapshot, noteCameraOrigin, noteSample, noteTracking, noteWorldMesh } from "../state/scanCapture";
-import { captureArColor } from "rock-vision";
+import { addScanPhoto, getCaptureSnapshot, isDetailMode, noteCameraOrigin, noteSample, noteTracking, noteWorldMesh } from "../state/scanCapture";
+import { captureArColor, describeNative } from "rock-vision";
 import { captureDisplayColor } from "../vision/frames";
 import { pullMeasuredDepth } from "../vision/depth";
 
@@ -62,9 +62,13 @@ function ScanScene(props?: SceneProps) {
     const gridTimer = setInterval(() => {
       void sampleGrid(sceneRef.current);
     }, 500);
+    let lastShot = 0;
     const photoTimer = setInterval(() => {
+      const gap = isDetailMode() ? 700 : 1400;
+      if (Date.now() - lastShot < gap) return;
+      lastShot = Date.now();
       void capturePhoto(sceneRef.current, navigator);
-    }, 1400);
+    }, 350);
     const depthTimer = setInterval(() => {
       void pullDepth();
     }, 125);
@@ -109,6 +113,16 @@ function ScanScene(props?: SceneProps) {
 
 let depthReading = false;
 
+async function sharpEnough(jpegBase64: string): Promise<boolean> {
+  try {
+    const mark = await describeNative(jpegBase64);
+    if (!mark.sharpness) return true;
+    return mark.sharpness >= 12;
+  } catch {
+    return true;
+  }
+}
+
 async function pullDepth(): Promise<void> {
   if (depthReading || getCaptureSnapshot().paused) return;
   depthReading = true;
@@ -127,6 +141,7 @@ async function capturePhoto(
   navigator: SceneProps["arSceneNavigator"] | undefined,
 ): Promise<void> {
   if (getCaptureSnapshot().tracking !== "locked") return;
+  if (isDetailMode() && getCaptureSnapshot().photoCount >= 150) return;
   try {
     const [arColor, color, frame] = await Promise.all([
       captureArColor().catch(() => ({ success: false as const })),
@@ -134,6 +149,7 @@ async function capturePhoto(
       navigator?.captureVPSQueryFrame?.(960).catch(() => undefined),
     ]);
     if (arColor.success && arColor.jpegBase64 && arColor.width && arColor.height && arColor.fx && arColor.fy && arColor.worldFromCamera) {
+      if (isDetailMode() && !(await sharpEnough(arColor.jpegBase64))) return;
       addScanPhoto({
         width: arColor.width,
         height: arColor.height,
@@ -156,6 +172,7 @@ async function capturePhoto(
       up = { x: pose.up[0], y: pose.up[1], z: pose.up[2] };
     }
     if (color.success && color.jpegBase64 && color.width && color.height && color.fx && color.fy && color.worldFromCamera) {
+      if (isDetailMode() && !(await sharpEnough(color.jpegBase64))) return;
       addScanPhoto({
         width: color.width,
         height: color.height,
@@ -172,6 +189,7 @@ async function capturePhoto(
       return;
     }
     if (color.success && color.jpegBase64 && color.width && color.height) {
+      if (isDetailMode() && !(await sharpEnough(color.jpegBase64))) return;
       const hfov = frame?.success && frame.fx && frame.width ? 2 * Math.atan(frame.width / 2 / frame.fx) : 1.05;
       const fx = (color.width / 2) / Math.tan(hfov / 2);
       addScanPhoto({
@@ -189,6 +207,7 @@ async function capturePhoto(
       return;
     }
     if (!frame?.success || !frame.image || !frame.width || !frame.height || !frame.fx || !frame.fy) return;
+    if (isDetailMode() && !(await sharpEnough(frame.image))) return;
     addScanPhoto({
       width: frame.width,
       height: frame.height,

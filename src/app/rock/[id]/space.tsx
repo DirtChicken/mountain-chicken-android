@@ -25,6 +25,8 @@ export default function SpaceScreen() {
   const [mesh, setMesh] = useState<SurfaceMesh | null>(null);
   const [textureUri, setTextureUri] = useState<string | null>(null);
   const [glbUri, setGlbUri] = useState<string | null>(null);
+  const [fallbackGlbUri, setFallbackGlbUri] = useState<string | null>(null);
+  const [useFallback, setUseFallback] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +39,7 @@ export default function SpaceScreen() {
         if (!cancelled) {
           setTextureUri(face?.jpgUri ?? null);
           setGlbUri(face?.glbUri ?? null);
+          setFallbackGlbUri(face?.fallbackGlbUri ?? null);
         }
       })
       .catch((loadError: unknown) => {
@@ -53,7 +56,16 @@ export default function SpaceScreen() {
       {!error && !mesh ? <Text style={styles.missing}>Opening the model…</Text> : null}
       {mesh ? (
         <ViewerBoundary>
-          <ArSpaceView mesh={mesh} routes={routes} objUri={scan?.meshUrl ?? null} textureUri={textureUri} glbUri={glbUri} />
+          <ArSpaceView
+            mesh={mesh}
+            routes={routes}
+            objUri={scan?.meshUrl ?? null}
+            textureUri={textureUri}
+            glbUri={useFallback ? fallbackGlbUri : glbUri}
+            onModelError={() => {
+              if (fallbackGlbUri) setUseFallback(true);
+            }}
+          />
         </ViewerBoundary>
       ) : null}
       <SafeAreaView style={styles.top} pointerEvents="box-none">

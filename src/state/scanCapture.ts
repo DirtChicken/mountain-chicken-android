@@ -21,6 +21,7 @@ export type CaptureSnapshot = {
   coaching: string;
   paused: boolean;
   photoCount: number;
+  detail: boolean;
   coverage: CoverageCell[][];
 };
 
@@ -35,6 +36,7 @@ let accumulated = false;
 let coaching = "Point the camera at the rock.";
 let trackingMessage = "Point the camera at the rock.";
 let paused = false;
+let detail = false;
 let voxel = FUSION_VOXEL;
 let lastCamera: Vector3 | null = null;
 let snapshot: CaptureSnapshot = emptySnapshot();
@@ -55,6 +57,7 @@ export function resetCapture(): void {
   coaching = "Point the camera at the rock.";
   trackingMessage = coaching;
   paused = false;
+  detail = false;
   voxel = FUSION_VOXEL;
   lastCamera = null;
   resetDepthReport();
@@ -68,6 +71,15 @@ export function setCapturePaused(next: boolean): void {
 
 export function isCapturePaused(): boolean {
   return paused;
+}
+
+export function setDetailMode(on: boolean): void {
+  detail = on;
+  publish();
+}
+
+export function isDetailMode(): boolean {
+  return detail;
 }
 
 export function noteCameraOrigin(position: Vector3): void {
@@ -125,20 +137,22 @@ export function addScanPhoto(photo: ScanPhoto): void {
     const speed = dist(place, lastPhotoPlace) / Math.max(0.25, (now - lastPhotoAt) / 1000);
     lastPhotoAt = now;
     lastPhotoPlace = place;
-    if (speed > 0.85) return;
+    if (speed > (detail ? 0.55 : 0.85)) return;
   } else {
     lastPhotoAt = now;
     lastPhotoPlace = place;
   }
+  const overlap = detail ? 0.12 : 0.22;
   if (place && photos.some((existing) => {
     const other = photoPosition(existing);
-    return other ? dist(place, other) < 0.22 : false;
+    return other ? dist(place, other) < overlap : false;
   })) {
     return;
   }
+  if (detail && photos.length >= 150) return;
   photos.push(photo);
   noteKeyframeCaptured(Math.round((photo.jpegBase64.length * 3) / 4));
-  if (photos.length > 24) dropMostRedundant();
+  if (!detail && photos.length > 24) dropMostRedundant();
 }
 
 export function fusedCells(): { x: number; y: number; z: number; n: number }[] {
@@ -208,11 +222,12 @@ function publish(): void {
   const points = groups.depth.concat(groups.feature, groups.plane);
   const coverage = coverageGrid(points);
   const distance = lastCamera && points.length ? distanceToCloud(lastCamera, points) : null;
+  const face = tracking === "locked" ? coverageAdvice(coverage, distance) : trackingMessage;
   coaching = paused
     ? "Paused. This is still the same scan. Resume to keep fusing, or finish when you mean to stop."
-    : tracking === "locked"
-      ? coverageAdvice(coverage, distance)
-      : trackingMessage;
+    : detail
+      ? `${face} High detail: ${photos.length} of 60 to 150 sharp photos.`
+      : face;
   snapshot = {
     sampleCount: map.size,
     depthCount: groups.depth.length,
@@ -226,6 +241,7 @@ function publish(): void {
     coaching,
     paused,
     photoCount: photos.length,
+    detail,
     coverage,
   };
   listeners.forEach((listener) => listener());
@@ -245,6 +261,7 @@ function emptySnapshot(): CaptureSnapshot {
     coaching: "Point the camera at the rock.",
     paused: false,
     photoCount: 0,
+    detail: false,
     coverage: Array.from({ length: 8 }, () => new Array<CoverageCell>(8).fill(0)),
   };
 }
