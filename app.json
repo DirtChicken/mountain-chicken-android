@@ -1,0 +1,81 @@
+{
+  "expo": {
+    "name": "Mountain Chicken",
+    "slug": "mountain-chicken",
+    "owner": "dirtchickens-team",
+    "version": "2.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "mountainchicken",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "buildNumber": "10",
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dirtchicken.mountainchicken",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Mountain Chicken uses the camera to scan a rock and place routes on it.",
+        "NSLocationWhenInUseUsageDescription": "Mountain Chicken saves where the rock is so you can find the scan later."
+      }
+    },
+    "android": {
+      "versionCode": 10,
+      "package": "com.dirtchicken.mountainchicken",
+      "adaptiveIcon": {
+        "backgroundColor": "#121410",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "headers": {
+            "Cross-Origin-Embedder-Policy": "credentialless",
+            "Cross-Origin-Opener-Policy": "same-origin"
+          }
+        }
+      ],
+      "expo-status-bar",
+      "expo-sqlite",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Mountain Chicken saves where the rock is so you can find the scan later."
+        }
+      ],
+      [
+        "@reactvision/react-viro",
+        {
+          "telemetry": false,
+          "provider": "none",
+          "ios": {
+            "cameraUsagePermission": "Mountain Chicken uses the camera to scan a rock and place routes on it.",
+            "locationUsagePermission": "Mountain Chicken saves where the rock is so you can find the scan later.",
+            "microphoneUsagePermission": "Mountain Chicken does not record audio.",
+            "photosPermission": "Mountain Chicken does not need your photo library.",
+            "savePhotosPermission": "Mountain Chicken does not save photos."
+          }
+        }
+      ],
+      "./modules/rock-vision/app.plugin.js",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "5ff39e39-f45d-4303-994c-b5a442526a12"
+      }
+    }
+  }
+}

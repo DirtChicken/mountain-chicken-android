@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(rockvision_depth)
+add_library(rockvision_depth SHARED depth_frame.cpp)
+find_library(log-lib log)
+target_link_libraries(rockvision_depth ${log-lib} dl)

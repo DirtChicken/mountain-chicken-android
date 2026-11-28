@@ -1,0 +1,28 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.dirtchicken.mountainchicken'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.rockvision'
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+    externalNativeBuild {
+      cmake {
+        cppFlags '-std=c++17'
+      }
+    }
+  }
+  externalNativeBuild {
+    cmake {
+      path 'src/main/cpp/CMakeLists.txt'
+    }
+  }
+}
+
+// compileSdk and minSdk come from expo-module-gradle-plugin (SDK 58: compileSdk 36, minSdk 24).
+// Feature marks are computed in RockVisionModule.kt, so this module does not depend on OpenCV.
